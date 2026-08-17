@@ -96,17 +96,19 @@ class AuthViewModel @Inject constructor(
         birthDate: String,
         heightCm: Int,
         weightKg: Double,
-        targetWeightKg: Double?,
         gender: String,
-        activityLevel: String,
-        nutritionGoal: String,
         onDone: () -> Unit,
     ) = runAction {
         require(runCatching { java.time.LocalDate.parse(birthDate) }.isSuccess) { "Geçerli bir doğum tarihi girin." }
         require(heightCm in 100..250) { "Boy 100-250 cm arasında olmalı." }
         require(weightKg in 30.0..350.0) { "Kilo 30-350 kg arasında olmalı." }
-        repository.updateHealthProfile(birthDate, heightCm, weightKg, targetWeightKg, gender, activityLevel, nutritionGoal)
-        _action.value = AuthActionState(message = "Kişisel hedeflerin hazır.")
+        repository.updateHealthProfile(birthDate, heightCm, weightKg, gender)
+        _action.value = AuthActionState(message = "Vücut bilgilerin güncellendi.")
+        onDone()
+    }
+
+    fun skipHealthProfile(onDone: () -> Unit) = runAction {
+        repository.skipHealthProfile()
         onDone()
     }
 
@@ -131,5 +133,13 @@ class AuthViewModel @Inject constructor(
         require(password.any(Char::isLetter) && password.any(Char::isDigit)) { "Şifre en az bir harf ve bir rakam içermeli." }
     }
 
-    private fun humanize(t: Throwable): String = t.message?.takeIf { it.isNotBlank() } ?: "İşlem sırasında bir hata oluştu."
+    private fun humanize(t: Throwable): String {
+        val message = t.message.orEmpty()
+        return when {
+            message.contains("Google ile giriş", ignoreCase = true) -> "Google ile giriş şu anda kullanılamıyor."
+            message.contains("PGRST", ignoreCase = true) || message.contains("schema cache", ignoreCase = true) -> "Bu özellik şu anda hazırlanıyor."
+            message.isNotBlank() && message.length <= 180 -> message
+            else -> "İşlem sırasında bir hata oluştu."
+        }
+    }
 }

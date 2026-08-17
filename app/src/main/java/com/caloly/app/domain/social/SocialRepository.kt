@@ -1,6 +1,7 @@
 package com.caloly.app.domain.social
 
 import com.caloly.app.domain.model.DailySummary
+import com.caloly.app.domain.model.NutritionTemplate
 
 interface SocialRepository {
     suspend fun searchUsers(query: String): List<SocialProfile>
@@ -13,4 +14,6 @@ interface SocialRepository {
     suspend fun goals(relationshipId: String, date: String): List<RelationshipGoal>
     suspend fun createGoal(relationshipId: String, metric: GoalMetric, targetValue: Int)
     suspend fun syncOwnDailySummary(date: String, summary: DailySummary)
+    suspend fun publishTemplate(template: NutritionTemplate)
+    suspend fun sharedTemplates(): List<NutritionTemplate>
 }

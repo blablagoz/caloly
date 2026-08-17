@@ -33,6 +33,10 @@ class AddFoodViewModel @Inject constructor(
 
     init { refreshLocalResults() }
 
+    fun setDate(dateKey: String) {
+        if (runCatching { LocalDate.parse(dateKey) }.isSuccess) _uiState.update { it.copy(dateKey = dateKey) }
+    }
+
     fun onQueryChange(value: String) {
         _uiState.update { it.copy(query = value, errorMessage = null, showingRemoteResults = false) }
         refreshLocalResults()
@@ -157,7 +161,7 @@ class AddFoodViewModel @Inject constructor(
         val amount = state.amountText.replace(',', '.').toDoubleOrNull() ?: return
         if (amount <= 0) return
         viewModelScope.launch {
-            addFoodLog(LocalDate.now().toString(), state.mealType, food, amount, state.unit)
+            addFoodLog(state.dateKey, state.mealType, food, amount, state.unit)
             onSaved()
         }
     }
@@ -174,6 +178,7 @@ class AddFoodViewModel @Inject constructor(
 }
 
 data class AddFoodUiState(
+    val dateKey: String = LocalDate.now().toString(),
     val mealType: MealType = MealType.BREAKFAST,
     val query: String = "",
     val results: List<Food> = emptyList(),

@@ -13,4 +13,5 @@ object Routes {
     const val HOME = "home"
     const val ADD_FOOD = "add_food"
     const val SOCIAL = "social"
+    fun addFood(dateKey: String) = "$ADD_FOOD/$dateKey"
 }

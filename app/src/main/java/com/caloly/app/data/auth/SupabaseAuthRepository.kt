@@ -81,6 +81,7 @@ class SupabaseAuthRepository @Inject constructor(
     }
 
     override suspend fun signInWithGoogle() {
+        ensureGoogleProviderEnabled()
         supabase.auth.signInWith(Google, redirectUrl = "caloly://auth")
     }
 
@@ -105,23 +106,21 @@ class SupabaseAuthRepository @Inject constructor(
         birthDate: String,
         heightCm: Int,
         weightKg: Double,
-        targetWeightKg: Double?,
         gender: String,
-        activityLevel: String,
-        nutritionGoal: String,
     ) {
         supabase.auth.updateUser {
             data {
                 put("birth_date", birthDate)
                 put("height_cm", heightCm)
                 put("weight_kg", weightKg)
-                targetWeightKg?.let { put("target_weight_kg", it) }
                 put("gender", gender)
-                put("activity_level", activityLevel)
-                put("nutrition_goal", nutritionGoal)
                 put("onboarding_completed", true)
             }
         }
+    }
+
+    override suspend fun skipHealthProfile() {
+        supabase.auth.updateUser { data { put("onboarding_completed", true) } }
     }
 
     override suspend fun uploadAvatar(bytes: ByteArray, contentType: String) {
@@ -160,6 +159,26 @@ class SupabaseAuthRepository @Inject constructor(
             if (!response.isSuccessful) error("E-posta/kullanıcı adı veya şifre hatalı.")
             Json.parseToJsonElement(body).jsonObject["email"]?.jsonPrimitive?.content
                 ?: error("Giriş servisi geçersiz yanıt verdi.")
+        }
+    }
+
+    private suspend fun ensureGoogleProviderEnabled() = withContext(Dispatchers.IO) {
+        check(BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_PUBLISHABLE_KEY.isNotBlank()) {
+            "Google ile giriş şu anda kullanılamıyor."
+        }
+        val request = Request.Builder()
+            .url("${BuildConfig.SUPABASE_URL}/auth/v1/settings")
+            .header("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
+            .get()
+            .build()
+        runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use false
+                val json = Json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
+                json["external"]?.jsonObject?.get("google")?.jsonPrimitive?.booleanOrNull == true
+            }
+        }.getOrDefault(false).let { enabled ->
+            check(enabled) { "Google ile giriş şu anda kullanılamıyor." }
         }
     }
 }

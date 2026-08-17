@@ -73,11 +73,13 @@ import com.google.mlkit.vision.barcode.common.Barcode
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddFoodScreen(
+    dateKey: String,
     onBack: () -> Unit,
     viewModel: AddFoodViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(dateKey) { viewModel.setDate(dateKey) }
 
     fun launchBarcodeScanner() {
         val options = GmsBarcodeScannerOptions.Builder()
@@ -104,7 +106,7 @@ fun AddFoodScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Yemek Ekle", fontWeight = FontWeight.ExtraBold, color = CalolyLavender) },
+                title = { Column { Text("Yemek Ekle", fontWeight = FontWeight.ExtraBold, color = CalolyLavender); Text(dateKey, color = CalolyMuted, fontSize = 11.sp) } },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Geri")

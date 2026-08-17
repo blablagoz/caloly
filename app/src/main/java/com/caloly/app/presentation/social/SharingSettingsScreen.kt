@@ -44,12 +44,12 @@ fun SharingSettingsScreen(
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Shield, null, tint = CalolyLavender)
                     Spacer(Modifier.width(12.dp))
-                    Text("Hangi verilerini partnerin ve arkadaşlarınla paylaşacağını kişi bazında sen belirlersin.", color = CalolyMuted)
+                    Text("Hangi verilerini hedef arkadaşlarınla ve arkadaşlarınla paylaşacağını kişi bazında sen belirlersin.", color = CalolyMuted)
                 }
             }
 
             if (state.connections.isEmpty() && !state.loading) {
-                Text("Henüz paylaşım ayarı yapabileceğin bir partner veya arkadaş bağlantın yok.", color = CalolyMuted)
+                Text("Henüz paylaşım ayarı yapabileceğin bir hedef arkadaşın veya arkadaşın yok.", color = CalolyMuted)
             } else {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.connections.forEach { item ->
@@ -75,7 +75,7 @@ fun SharingSettingsScreen(
 private fun SharingCard(value: SharingPermissions, onChange: (SharingPermissions) -> Unit) {
     Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = CalolySurface)) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
-            SharingSwitch("Kalori", "Günlük tüketilen ve hedef", value.calories) { onChange(value.copy(calories = it)) }
+            SharingSwitch("Kalori", "Günlük tüketilen toplam", value.calories) { onChange(value.copy(calories = it)) }
             SharingSwitch("Makrolar", "Protein, karbonhidrat ve yağ", value.macros) { onChange(value.copy(macros = it)) }
             SharingSwitch("Adım", "Günlük adım sayısı", value.steps) { onChange(value.copy(steps = it)) }
             SharingSwitch("Aktivite kalorisi", "Aktif ve toplam enerji", value.activity) { onChange(value.copy(activity = it)) }

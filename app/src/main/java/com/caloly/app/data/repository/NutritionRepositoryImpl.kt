@@ -2,6 +2,9 @@ package com.caloly.app.data.repository
 
 import com.caloly.app.data.local.FoodLogDao
 import com.caloly.app.data.local.FoodLogEntity
+import com.caloly.app.data.local.NutritionTemplateEntity
+import com.caloly.app.data.local.NutritionTemplateItemEntity
+import com.caloly.app.data.local.NutritionTemplateWithItems
 import com.caloly.app.data.remote.OpenFoodFactsApi
 import com.caloly.app.data.remote.toDomainOrNull
 import com.caloly.app.domain.model.DailySummary
@@ -9,6 +12,9 @@ import com.caloly.app.domain.model.Food
 import com.caloly.app.domain.model.FoodLog
 import com.caloly.app.domain.model.FoodUnit
 import com.caloly.app.domain.model.MealType
+import com.caloly.app.domain.model.NutritionTemplate
+import com.caloly.app.domain.model.NutritionTemplateItem
+import com.caloly.app.domain.model.TemplateKind
 import com.caloly.app.domain.repository.NutritionRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -95,6 +101,83 @@ class NutritionRepositoryImpl @Inject constructor(
 
     override suspend fun deleteFoodLog(id: String) = dao.deleteById(id)
 
+    override fun observeLoggedDates(): Flow<Set<String>> = dao.observeLoggedDates().map { it.toSet() }
+
+    override fun observeTemplates(): Flow<List<NutritionTemplate>> =
+        dao.observeTemplates().map { templates -> templates.map { it.toDomain() } }
+
+    override suspend fun saveTemplate(
+        name: String,
+        kind: TemplateKind,
+        logs: List<FoodLog>,
+        sourceOwnerName: String?,
+    ): NutritionTemplate {
+        require(name.isNotBlank()) { "Şablona bir ad ver." }
+        require(logs.isNotEmpty()) { "Kaydedilecek bir besin yok." }
+        val template = NutritionTemplate(
+            id = UUID.randomUUID().toString(),
+            name = name.trim(),
+            kind = kind,
+            sourceOwnerName = sourceOwnerName,
+            items = logs.map { it.toTemplateItem() },
+        )
+        persistTemplate(template)
+        return template
+    }
+
+    override suspend fun saveImportedTemplate(template: NutritionTemplate): NutritionTemplate {
+        require(template.items.isNotEmpty()) { "Örnek beslenme kaydı boş." }
+        val imported = template.copy(id = UUID.randomUUID().toString(), createdAt = System.currentTimeMillis())
+        persistTemplate(imported)
+        return imported
+    }
+
+    override suspend fun applyTemplate(templateId: String, dateKey: String) {
+        val template = dao.templateById(templateId)?.toDomain() ?: error("Kayıtlı öğün bulunamadı.")
+        val now = System.currentTimeMillis()
+        dao.insertLogs(template.items.mapIndexed { index, item ->
+            FoodLogEntity(
+                id = UUID.randomUUID().toString(),
+                dateKey = dateKey,
+                mealType = item.mealType.name,
+                foodName = item.foodName,
+                brand = item.brand,
+                amount = item.amount,
+                unit = item.unit.name,
+                grams = item.grams,
+                calories = item.calories,
+                proteinGrams = item.proteinGrams,
+                carbsGrams = item.carbsGrams,
+                fatGrams = item.fatGrams,
+                createdAt = now + index,
+            )
+        })
+    }
+
+    override suspend fun deleteTemplate(id: String) = dao.deleteTemplate(id)
+
+    private suspend fun persistTemplate(template: NutritionTemplate) {
+        dao.replaceTemplate(
+            NutritionTemplateEntity(template.id, template.name, template.kind.name, template.sourceOwnerName, template.createdAt),
+            template.items.map { item ->
+                NutritionTemplateItemEntity(
+                    id = UUID.randomUUID().toString(),
+                    templateId = template.id,
+                    mealType = item.mealType.name,
+                    foodName = item.foodName,
+                    brand = item.brand,
+                    amount = item.amount,
+                    unit = item.unit.name,
+                    grams = item.grams,
+                    calories = item.calories,
+                    proteinGrams = item.proteinGrams,
+                    carbsGrams = item.carbsGrams,
+                    fatGrams = item.fatGrams,
+                )
+            },
+        )
+    }
+
     private fun FoodLogEntity.toDomain() = FoodLog(
         id = id,
         mealType = MealType.valueOf(mealType),
@@ -108,6 +191,33 @@ class NutritionRepositoryImpl @Inject constructor(
         carbsGrams = carbsGrams,
         fatGrams = fatGrams,
         createdAt = createdAt,
+    )
+
+    private fun FoodLog.toTemplateItem() = NutritionTemplateItem(
+        mealType, foodName, brand, amount, unit, grams, calories,
+        proteinGrams, carbsGrams, fatGrams,
+    )
+
+    private fun NutritionTemplateWithItems.toDomain() = NutritionTemplate(
+        id = template.id,
+        name = template.name,
+        kind = TemplateKind.valueOf(template.kind),
+        sourceOwnerName = template.sourceOwnerName,
+        createdAt = template.createdAt,
+        items = items.map { item ->
+            NutritionTemplateItem(
+                mealType = MealType.valueOf(item.mealType),
+                foodName = item.foodName,
+                brand = item.brand,
+                amount = item.amount,
+                unit = FoodUnit.valueOf(item.unit),
+                grams = item.grams,
+                calories = item.calories,
+                proteinGrams = item.proteinGrams,
+                carbsGrams = item.carbsGrams,
+                fatGrams = item.fatGrams,
+            )
+        },
     )
 
     companion object {

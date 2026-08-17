@@ -38,11 +38,9 @@ interface AuthRepository {
         birthDate: String,
         heightCm: Int,
         weightKg: Double,
-        targetWeightKg: Double?,
         gender: String,
-        activityLevel: String,
-        nutritionGoal: String,
     )
+    suspend fun skipHealthProfile()
     suspend fun uploadAvatar(bytes: ByteArray, contentType: String = "image/jpeg")
     suspend fun signOut()
 }
