@@ -27,7 +27,7 @@ class SupabaseAuthRepository @Inject constructor(
     override val authState: Flow<AuthState> = supabase.auth.sessionStatus.map { status ->
         when (status) {
             SessionStatus.Initializing -> AuthState.Loading
-            is SessionStatus.Authenticated -> AuthState.SignedIn(status.session.user.toCalolyUser())
+            is SessionStatus.Authenticated -> status.session.user?.let { AuthState.SignedIn(it.toCalolyUser()) } ?: AuthState.SignedOut
             is SessionStatus.NotAuthenticated -> AuthState.SignedOut
             is SessionStatus.RefreshFailure -> AuthState.SignedOut
         }

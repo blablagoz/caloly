@@ -2,7 +2,7 @@ package com.caloly.app.data.health
 
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
-import androidx.health.connect.client.aggregate.AggregateRequest
+import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.StepsRecord

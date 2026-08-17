@@ -60,8 +60,8 @@ import com.caloly.app.presentation.theme.CalolyLavender
 import com.caloly.app.presentation.theme.CalolyLavenderLight
 import com.caloly.app.presentation.theme.CalolyLavenderWhite
 import com.caloly.app.presentation.theme.CalolyMuted
-import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 
 @OptIn(ExperimentalLayoutApi::class)

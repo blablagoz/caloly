@@ -15,8 +15,8 @@ android {
         applicationId = "com.caloly.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.7.6"
+        versionCode = 14
+        versionName = "0.7.7"
 
         val supabaseUrl = providers.gradleProperty("SUPABASE_URL").orElse("").get()
         val supabaseKey = providers.gradleProperty("SUPABASE_PUBLISHABLE_KEY").orElse("").get()
@@ -44,6 +44,9 @@ android {
 
 kotlin {
     jvmToolchain(17)
+    compilerOptions {
+        optIn.add("androidx.compose.material3.ExperimentalMaterial3Api")
+    }
 }
 
 dependencies {
