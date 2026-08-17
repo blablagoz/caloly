@@ -1,10 +1,11 @@
 package com.caloly.app.presentation.theme
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 
-private val CalolyColorScheme = lightColorScheme(
+private val CalolyColorScheme = darkColorScheme(
     primary = CalolyGreen,
     onPrimary = CalolyLavenderWhite,
     secondary = CalolyLavender,
@@ -15,6 +16,7 @@ private val CalolyColorScheme = lightColorScheme(
     onSurface = CalolyText,
     surfaceVariant = CalolyLavenderLight,
     onSurfaceVariant = CalolyText,
+    outline = Color(0xFF34384A),
 )
 
 @Composable

@@ -86,7 +86,7 @@ fun CalolyApp() {
         composable(Routes.LOGIN) {
             LoginScreen(actionState,
                 onPasswordLogin = authViewModel::signIn,
-                onOtp = { email -> authViewModel.sendOtp(email); if (email.contains('@')) navController.navigate(Routes.OTP + "?email=" + java.net.URLEncoder.encode(email,"UTF-8") + "&signup=0") },
+                onOtp = { email -> authViewModel.sendOtp(email, createUser = false); if (email.contains('@')) navController.navigate(Routes.OTP + "?email=" + java.net.URLEncoder.encode(email,"UTF-8") + "&signup=0") },
                 onGoogle = authViewModel::googleSignIn,
                 onRegister = { navController.navigate(Routes.REGISTER) },
                 onForgot = { navController.navigate(Routes.FORGOT_PASSWORD) })
@@ -99,7 +99,7 @@ fun CalolyApp() {
         composable(Routes.OTP + "?email={email}&signup={signup}", arguments = listOf(androidx.navigation.navArgument("email") { defaultValue = "" }, androidx.navigation.navArgument("signup") { defaultValue = "0" })) { backStack ->
             val email = java.net.URLDecoder.decode(backStack.arguments?.getString("email").orEmpty(), "UTF-8")
             val isSignup = backStack.arguments?.getString("signup") == "1"
-            OtpScreen(email, actionState, onVerify = { token -> authViewModel.verifyOtp(email, token, isSignup) { navController.navigate(Routes.HOME) { popUpTo(0) } } }, onResend = { authViewModel.sendOtp(email) }, onBack = { navController.popBackStack() })
+            OtpScreen(email, actionState, onVerify = { token -> authViewModel.verifyOtp(email, token, isSignup) { navController.navigate(Routes.HOME) { popUpTo(0) } } }, onResend = { if (!isSignup) authViewModel.sendOtp(email, createUser = false) }, onBack = { navController.popBackStack() })
         }
         composable(Routes.FORGOT_PASSWORD) { ForgotPasswordScreen(actionState, authViewModel::forgotPassword) { navController.popBackStack() } }
         composable(Routes.CHANGE_PASSWORD) { ChangePasswordScreen(actionState, onChange = { authViewModel.changePassword(it) { navController.popBackStack() } }, onBack = { navController.popBackStack() }) }
@@ -122,12 +122,17 @@ fun CalolyApp() {
                 val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshHealth() }
                 lifecycleOwner.lifecycle.addObserver(observer); onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
-            HomeScreen(summary, healthState,
+            MainShell(
+                summary = summary,
+                healthState = healthState,
+                user = (authState as? AuthState.SignedIn)?.user,
+                authAction = actionState,
                 onAddFood = { navController.navigate(Routes.ADD_FOOD) },
-                onAccount = { navController.navigate(Routes.ACCOUNT) },
-                onSocial = { navController.navigate(Routes.SOCIAL) },
                 onConnectHealth = { permissionLauncher.launch(viewModel.requiredHealthPermissions) },
-                onRefreshHealth = viewModel::refreshHealth)
+                onRefreshHealth = viewModel::refreshHealth,
+                onEditAccount = { navController.navigate(Routes.ACCOUNT) },
+                onSignOut = { authViewModel.signOut(); navController.navigate(Routes.LOGIN) { popUpTo(0) } },
+            )
         }
         composable(Routes.ADD_FOOD) { AddFoodScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SOCIAL) { SocialScreen(onBack = { navController.popBackStack() }) }

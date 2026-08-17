@@ -33,7 +33,7 @@ class AuthViewModel @Inject constructor(
 
     fun clearFeedback() { _action.value = _action.value.copy(message = null, error = null) }
 
-    fun sendOtp(email: String, createUser: Boolean = true) = runAction {
+    fun sendOtp(email: String, createUser: Boolean = false) = runAction {
         require(email.contains('@')) { "Geçerli bir e-posta adresi girin." }
         repository.sendEmailOtp(email, createUser)
         _action.value = AuthActionState(
