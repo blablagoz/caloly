@@ -32,7 +32,8 @@ jobs:
           gradle-version: "8.14.4"
 
       - name: Android API 36 kur
-        run: "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /dev/null
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /dev/null
 
       - name: Supabase ayarlarini kontrol et
         env:
@@ -50,15 +51,13 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: |
-          gradle :app:assembleDebug --stacktrace \
-            -PSUPABASE_URL="$SUPABASE_URL" \
-            -PSUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
+          gradle :app:assembleDebug --stacktrace             -PSUPABASE_URL="$SUPABASE_URL"             -PSUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
 
       - name: APK'yi artifact olarak yukle
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Caloly-v0.7.5-debug-apk
+          name: Caloly-v0.7.6-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
