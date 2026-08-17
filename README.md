@@ -5,7 +5,7 @@
 Caloly, Kotlin + Jetpack Compose ile geliştirilen sosyal beslenme ve kalori takip uygulamasıdır.
 
 ## Bu sürümde
-- Eflatun-beyaz Caloly tema sistemi ve oval FatSecret-yeşili aksiyon butonları
+- Eflatun-beyaz Caloly tema sistemi ve oval yeşili aksiyon butonları
 - Room tabanlı günlük besin kayıtları
 - Kahvaltı / Öğle / Akşam / Atıştırmalık seçimi
 - Besin arama ve hızlı ekleme
