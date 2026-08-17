@@ -7,6 +7,11 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
+
+configurations.configureEach {
+    resolutionStrategy.force("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.0")
+}
+
 android {
     namespace = "com.caloly.app"
     compileSdk = 36
@@ -15,8 +20,8 @@ android {
         applicationId = "com.caloly.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.7.8"
+        versionCode = 16
+        versionName = "0.7.9"
 
         val supabaseUrl = providers.gradleProperty("SUPABASE_URL").orElse("").get()
         val supabaseKey = providers.gradleProperty("SUPABASE_PUBLISHABLE_KEY").orElse("").get()
