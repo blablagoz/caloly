@@ -1,0 +1,56 @@
+package com.caloly.app.data.remote
+
+import com.google.gson.annotations.SerializedName
+import retrofit2.http.GET
+import retrofit2.http.Path
+import retrofit2.http.Query
+
+interface OpenFoodFactsApi {
+    @GET("cgi/search.pl")
+    suspend fun search(
+        @Query("search_terms") query: String,
+        @Query("search_simple") searchSimple: Int = 1,
+        @Query("action") action: String = "process",
+        @Query("json") json: Int = 1,
+        @Query("page_size") pageSize: Int = 20,
+        @Query("fields") fields: String = SEARCH_FIELDS,
+    ): OffSearchResponse
+
+    @GET("api/v3.6/product/{barcode}.json")
+    suspend fun productByBarcode(
+        @Path("barcode") barcode: String,
+        @Query("fields") fields: String = PRODUCT_FIELDS,
+    ): OffProductResponse
+
+    companion object {
+        const val SEARCH_FIELDS = "code,product_name,product_name_tr,brands,quantity,serving_size,image_front_small_url,nutriments"
+        const val PRODUCT_FIELDS = "code,product_name,product_name_tr,brands,quantity,serving_size,image_front_small_url,nutriments"
+    }
+}
+
+data class OffSearchResponse(
+    val products: List<OffProduct> = emptyList(),
+)
+
+data class OffProductResponse(
+    val status: String? = null,
+    val product: OffProduct? = null,
+)
+
+data class OffProduct(
+    val code: String? = null,
+    @SerializedName("product_name") val productName: String? = null,
+    @SerializedName("product_name_tr") val productNameTr: String? = null,
+    val brands: String? = null,
+    val quantity: String? = null,
+    @SerializedName("serving_size") val servingSize: String? = null,
+    @SerializedName("image_front_small_url") val imageUrl: String? = null,
+    val nutriments: OffNutriments? = null,
+)
+
+data class OffNutriments(
+    @SerializedName("energy-kcal_100g") val calories100g: Double? = null,
+    @SerializedName("proteins_100g") val protein100g: Double? = null,
+    @SerializedName("carbohydrates_100g") val carbs100g: Double? = null,
+    @SerializedName("fat_100g") val fat100g: Double? = null,
+)
