@@ -34,7 +34,7 @@ class SupabaseAuthRepository @Inject constructor(
     }
 
     override suspend fun sendEmailOtp(email: String, createUser: Boolean) {
-        supabase.auth.signInWith(OTP) {
+        supabase.auth.signInWith(OTP, redirectUrl = "caloly://auth") {
             this.email = email.trim()
             this.createUser = createUser
         }
@@ -49,7 +49,7 @@ class SupabaseAuthRepository @Inject constructor(
     }
 
     override suspend fun signUp(email: String, password: String, displayName: String, username: String) {
-        supabase.auth.signUpWith(Email) {
+        supabase.auth.signUpWith(Email, redirectUrl = "caloly://auth") {
             this.email = email.trim()
             this.password = password
             data = buildJsonObject {

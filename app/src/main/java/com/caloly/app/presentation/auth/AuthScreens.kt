@@ -8,7 +8,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -44,7 +43,7 @@ fun LoginScreen(
         Feedback(state)
         PrimaryButton("Giriş Yap", state.loading) { onPasswordLogin(email, password) }
         OutlinedButton(onClick = { onOtp(email) }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(50)) {
-            Icon(Icons.Rounded.Email, null); Spacer(Modifier.width(8.dp)); Text("E-posta koduyla giriş")
+            Icon(Icons.Rounded.Email, null); Spacer(Modifier.width(8.dp)); Text("E-posta bağlantısıyla giriş")
         }
         OutlinedButton(onClick = onGoogle, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(50)) {
             Text("G  Google ile devam et", fontWeight = FontWeight.Bold)
@@ -70,12 +69,18 @@ fun RegisterScreen(state: AuthActionState, onRegister: (String,String,String,Str
 
 @Composable
 fun OtpScreen(email:String,state:AuthActionState,onVerify:(String)->Unit,onResend:()->Unit,onBack:()->Unit){
-    var token by remember { mutableStateOf("") }
-    AuthPage("Kodunu doğrula", "$email adresine gönderilen 6 haneli kodu gir.", onBack) {
-        CalolyField(token,{ if(it.length<=8) token=it.filter(Char::isDigit)},"Doğrulama kodu",KeyboardType.Number)
+    AuthPage("E-postanı kontrol et", "$email adresine bir doğrulama bağlantısı gönderdik.", onBack) {
+        Icon(Icons.Rounded.Email, contentDescription = null, tint = CalolyLavender, modifier = Modifier.size(64.dp))
+        Spacer(Modifier.height(18.dp))
+        Text(
+            "E-postadaki “Sign in” bağlantısına dokun. Caloly otomatik olarak açılacak ve hesabın doğrulanacak.",
+            color = CalolyMuted,
+            fontSize = 16.sp
+        )
+        Spacer(Modifier.height(18.dp))
         Feedback(state)
-        PrimaryButton("Doğrula",state.loading){ onVerify(token) }
-        TextButton(onClick=onResend){Text("Kodu tekrar gönder")}
+        PrimaryButton("E-postayı tekrar gönder",state.loading){ onResend() }
+        TextButton(onClick=onBack){Text("Giriş ekranına dön")}
     }
 }
 

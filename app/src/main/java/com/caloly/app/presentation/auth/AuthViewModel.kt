@@ -36,7 +36,10 @@ class AuthViewModel @Inject constructor(
     fun sendOtp(email: String, createUser: Boolean = true) = runAction {
         require(email.contains('@')) { "Geçerli bir e-posta adresi girin." }
         repository.sendEmailOtp(email, createUser)
-        _action.value = AuthActionState(message = "6 haneli giriş kodu e-postanıza gönderildi.", otpEmail = email.trim())
+        _action.value = AuthActionState(
+            message = "Giriş bağlantısı e-posta adresinize gönderildi.",
+            otpEmail = email.trim()
+        )
     }
 
     fun verifyOtp(email: String, token: String, isSignup: Boolean = false, onSuccess: () -> Unit) = runAction {
@@ -47,11 +50,15 @@ class AuthViewModel @Inject constructor(
     }
 
     fun signUp(email: String, password: String, displayName: String, username: String, onSubmitted: () -> Unit) = runAction {
+        require(email.contains('@')) { "Geçerli bir e-posta adresi girin." }
         validatePassword(password)
         require(displayName.isNotBlank()) { "Adınızı girin." }
         require(username.matches(Regex("[a-zA-Z0-9._]{3,24}"))) { "Kullanıcı adı 3-24 karakter; harf, sayı, nokta ve alt çizgi içerebilir." }
         repository.signUp(email, password, displayName, username)
-        _action.value = AuthActionState(message = "Hesap oluşturuldu. E-postanızı doğrulayın.", otpEmail = email.trim())
+        _action.value = AuthActionState(
+            message = "Hesap oluşturuldu. E-postadaki doğrulama bağlantısına dokunun.",
+            otpEmail = email.trim()
+        )
         onSubmitted()
     }
 
