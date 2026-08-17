@@ -41,3 +41,11 @@ Bu migration:
 - yalnızca kullanıcının kendi avatar klasörüne yazmasına izin veren Storage politikalarını oluşturur.
 
 Ortak hedef RPC'si partnerin adım/kalori paylaşım izinlerini kontrol eder; kapalı bir metrik hedef kartı üzerinden açığa çıkarılmaz.
+
+## v0.9.1 profil ve kullanıcı adı girişi
+
+1. SQL Editor içinde `supabase/004_profile_onboarding.sql` dosyasını çalıştırın.
+2. Supabase CLI ile `supabase functions deploy login-identifier` çalıştırın.
+3. Edge Function için `SUPABASE_URL`, `SUPABASE_ANON_KEY` ve `SUPABASE_SERVICE_ROLE_KEY` secret'larının tanımlı olduğunu doğrulayın. Service-role anahtarı yalnız Edge Function ortamında kalmalı, APK'ya eklenmemelidir.
+4. Google Cloud'da OAuth istemcilerini oluşturup Supabase Authentication > Providers > Google bölümünde Web client ID/secret değerlerini tanımlayın.
+5. Authentication > URL Configuration içinde `caloly://auth` yönlendirmesinin kayıtlı olduğunu doğrulayın.

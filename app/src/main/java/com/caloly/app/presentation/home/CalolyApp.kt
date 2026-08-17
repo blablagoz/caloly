@@ -37,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.caloly.app.domain.model.DailySummary
 import com.caloly.app.domain.auth.AuthState
@@ -61,6 +63,7 @@ import com.caloly.app.presentation.addfood.AddFoodScreen
 import com.caloly.app.presentation.auth.*
 import com.caloly.app.presentation.navigation.Routes
 import com.caloly.app.presentation.social.SocialScreen
+import com.caloly.app.presentation.social.SharingSettingsScreen
 import com.caloly.app.presentation.theme.CalolyGreen
 import com.caloly.app.presentation.theme.CalolyLavender
 import com.caloly.app.presentation.theme.CalolyLavenderLight
@@ -74,14 +77,32 @@ fun CalolyApp() {
     val authViewModel: AuthViewModel = hiltViewModel()
     val authState by authViewModel.authState.collectAsStateWithLifecycle()
     val actionState by authViewModel.action.collectAsStateWithLifecycle()
+    val currentEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentEntry?.destination?.route
+
+    LaunchedEffect(authState, currentRoute) {
+        when (val state = authState) {
+            AuthState.Loading -> Unit
+            AuthState.SignedOut -> {
+                val publicRoute = currentRoute == Routes.LOGIN || currentRoute == Routes.REGISTER ||
+                    currentRoute == Routes.FORGOT_PASSWORD || currentRoute?.startsWith(Routes.OTP) == true
+                if (!publicRoute) navController.navigate(Routes.LOGIN) { popUpTo(0) }
+            }
+            is AuthState.SignedIn -> {
+                val destination = if (state.user.onboardingCompleted) Routes.HOME else Routes.ONBOARDING
+                val authRoute = currentRoute == Routes.AUTH_GATE || currentRoute == Routes.LOGIN ||
+                    currentRoute == Routes.REGISTER || currentRoute == Routes.FORGOT_PASSWORD ||
+                    currentRoute?.startsWith(Routes.OTP) == true
+                if (authRoute || (destination == Routes.ONBOARDING && currentRoute != Routes.ONBOARDING)) {
+                    navController.navigate(destination) { popUpTo(0) }
+                }
+            }
+        }
+    }
 
     NavHost(navController = navController, startDestination = Routes.AUTH_GATE) {
         composable(Routes.AUTH_GATE) {
-            when (val state = authState) {
-                AuthState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator(color = CalolyGreen) }
-                AuthState.SignedOut -> androidx.compose.runtime.LaunchedEffect(Unit) { navController.navigate(Routes.LOGIN) { popUpTo(Routes.AUTH_GATE) { inclusive = true } } }
-                is AuthState.SignedIn -> androidx.compose.runtime.LaunchedEffect(Unit) { navController.navigate(Routes.HOME) { popUpTo(Routes.AUTH_GATE) { inclusive = true } } }
-            }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator(color = CalolyGreen) }
         }
         composable(Routes.LOGIN) {
             LoginScreen(actionState,
@@ -103,6 +124,14 @@ fun CalolyApp() {
         }
         composable(Routes.FORGOT_PASSWORD) { ForgotPasswordScreen(actionState, authViewModel::forgotPassword) { navController.popBackStack() } }
         composable(Routes.CHANGE_PASSWORD) { ChangePasswordScreen(actionState, onChange = { authViewModel.changePassword(it) { navController.popBackStack() } }, onBack = { navController.popBackStack() }) }
+        composable(Routes.ONBOARDING) {
+            val user = (authState as? AuthState.SignedIn)?.user
+            if (user != null) OnboardingScreen(user, actionState) { birthDate, heightCm, weightKg, targetWeightKg, gender, activity, goal ->
+                authViewModel.updateHealthProfile(birthDate, heightCm, weightKg, targetWeightKg, gender, activity, goal) {
+                    navController.navigate(Routes.HOME) { popUpTo(0) }
+                }
+            }
+        }
         composable(Routes.ACCOUNT) {
             val user = (authState as? AuthState.SignedIn)?.user
             if (user != null) AccountScreen(user, actionState,
@@ -131,11 +160,15 @@ fun CalolyApp() {
                 onConnectHealth = { permissionLauncher.launch(viewModel.requiredHealthPermissions) },
                 onRefreshHealth = viewModel::refreshHealth,
                 onEditAccount = { navController.navigate(Routes.ACCOUNT) },
+                onEditGoals = { navController.navigate(Routes.ONBOARDING) },
+                onSecurity = { navController.navigate(Routes.CHANGE_PASSWORD) },
+                onSharingSettings = { navController.navigate(Routes.SHARING_SETTINGS) },
                 onSignOut = { authViewModel.signOut(); navController.navigate(Routes.LOGIN) { popUpTo(0) } },
             )
         }
         composable(Routes.ADD_FOOD) { AddFoodScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SOCIAL) { SocialScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.SHARING_SETTINGS) { SharingSettingsScreen(onBack = { navController.popBackStack() }) }
     }
 }
 

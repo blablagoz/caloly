@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.map
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.roundToInt
+import java.text.Normalizer
+import java.util.Locale
 
 class NutritionRepositoryImpl @Inject constructor(
     private val dao: FoodLogDao,
@@ -37,10 +39,10 @@ class NutritionRepositoryImpl @Inject constructor(
 
     override fun searchLocalFoods(query: String): List<Food> {
         if (query.isBlank()) return foodCatalog.take(12)
-        val normalized = query.trim().lowercase()
+        val normalized = query.searchKey()
         return foodCatalog.filter { food ->
-            food.name.lowercase().contains(normalized) ||
-                food.brand?.lowercase()?.contains(normalized) == true
+            food.name.searchKey().contains(normalized) ||
+                food.brand?.searchKey()?.contains(normalized) == true
         }.take(25)
     }
 
@@ -127,6 +129,40 @@ class NutritionRepositoryImpl @Inject constructor(
             Food("albeni", "Albeni", "Ülker", 470.0, 5.5, 66.0, 20.0, FoodUnit.PACKAGE, 40.0),
             Food("doritos-taco", "Doritos Taco", "Doritos", 500.0, 6.0, 52.0, 29.0, FoodUnit.PACKAGE, 107.0),
             Food("coke-zero", "Coca-Cola Zero Sugar", "Coca-Cola", 0.2, 0.0, 0.0, 0.0, FoodUnit.MILLILITER),
+            Food("water", "Su", caloriesPer100g = 0.0, proteinPer100g = 0.0, carbsPer100g = 0.0, fatPer100g = 0.0, defaultUnit = FoodUnit.MILLILITER),
+            Food("ayran", "Ayran", caloriesPer100g = 37.0, proteinPer100g = 2.0, carbsPer100g = 2.8, fatPer100g = 2.0, defaultUnit = FoodUnit.MILLILITER),
+            Food("kefir", "Kefir", caloriesPer100g = 55.0, proteinPer100g = 3.4, carbsPer100g = 4.5, fatPer100g = 2.5, defaultUnit = FoodUnit.MILLILITER),
+            Food("cheese-white", "Beyaz peynir", caloriesPer100g = 260.0, proteinPer100g = 17.0, carbsPer100g = 3.0, fatPer100g = 20.0),
+            Food("cheese-kasar", "Kaşar peyniri", caloriesPer100g = 404.0, proteinPer100g = 25.0, carbsPer100g = 1.3, fatPer100g = 33.0),
+            Food("olive", "Zeytin", caloriesPer100g = 116.0, proteinPer100g = 0.8, carbsPer100g = 6.0, fatPer100g = 10.9, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 4.0),
+            Food("olive-oil", "Zeytinyağı", caloriesPer100g = 884.0, proteinPer100g = 0.0, carbsPer100g = 0.0, fatPer100g = 100.0),
+            Food("butter", "Tereyağı", caloriesPer100g = 717.0, proteinPer100g = 0.9, carbsPer100g = 0.1, fatPer100g = 81.0),
+            Food("bulgur", "Bulgur pilavı", caloriesPer100g = 114.0, proteinPer100g = 3.1, carbsPer100g = 18.6, fatPer100g = 3.2),
+            Food("pasta", "Makarna", caloriesPer100g = 158.0, proteinPer100g = 5.8, carbsPer100g = 30.9, fatPer100g = 0.9),
+            Food("red-meat", "Dana eti", caloriesPer100g = 250.0, proteinPer100g = 26.0, carbsPer100g = 0.0, fatPer100g = 15.0),
+            Food("salmon", "Somon", caloriesPer100g = 208.0, proteinPer100g = 20.0, carbsPer100g = 0.0, fatPer100g = 13.0),
+            Food("lentil-soup", "Mercimek çorbası", caloriesPer100g = 72.0, proteinPer100g = 3.7, carbsPer100g = 11.0, fatPer100g = 1.7),
+            Food("tarhana-soup", "Tarhana çorbası", caloriesPer100g = 61.0, proteinPer100g = 2.0, carbsPer100g = 9.0, fatPer100g = 2.0),
+            Food("beans", "Kuru fasulye", caloriesPer100g = 142.0, proteinPer100g = 8.7, carbsPer100g = 21.0, fatPer100g = 2.5),
+            Food("chickpeas", "Nohut yemeği", caloriesPer100g = 164.0, proteinPer100g = 8.9, carbsPer100g = 27.0, fatPer100g = 2.6),
+            Food("lahmacun", "Lahmacun", caloriesPer100g = 220.0, proteinPer100g = 9.0, carbsPer100g = 27.0, fatPer100g = 8.5, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 150.0),
+            Food("pide", "Kıymalı pide", caloriesPer100g = 245.0, proteinPer100g = 10.0, carbsPer100g = 30.0, fatPer100g = 9.0, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 250.0),
+            Food("simit", "Simit", caloriesPer100g = 333.0, proteinPer100g = 10.0, carbsPer100g = 58.0, fatPer100g = 7.0, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 100.0),
+            Food("borek", "Peynirli börek", caloriesPer100g = 280.0, proteinPer100g = 8.0, carbsPer100g = 30.0, fatPer100g = 14.0),
+            Food("tomato", "Domates", caloriesPer100g = 18.0, proteinPer100g = 0.9, carbsPer100g = 3.9, fatPer100g = 0.2, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 120.0),
+            Food("cucumber", "Salatalık", caloriesPer100g = 15.0, proteinPer100g = 0.7, carbsPer100g = 3.6, fatPer100g = 0.1, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 150.0),
+            Food("potato", "Patates", caloriesPer100g = 77.0, proteinPer100g = 2.0, carbsPer100g = 17.0, fatPer100g = 0.1, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 170.0),
+            Food("orange", "Portakal", caloriesPer100g = 47.0, proteinPer100g = 0.9, carbsPer100g = 12.0, fatPer100g = 0.1, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 180.0),
+            Food("strawberry", "Çilek", caloriesPer100g = 32.0, proteinPer100g = 0.7, carbsPer100g = 7.7, fatPer100g = 0.3),
+            Food("almond", "Badem", caloriesPer100g = 579.0, proteinPer100g = 21.0, carbsPer100g = 22.0, fatPer100g = 50.0),
+            Food("walnut", "Ceviz", caloriesPer100g = 654.0, proteinPer100g = 15.0, carbsPer100g = 14.0, fatPer100g = 65.0),
+            Food("hazelnut", "Fındık", caloriesPer100g = 628.0, proteinPer100g = 15.0, carbsPer100g = 17.0, fatPer100g = 61.0),
+            Food("honey", "Bal", caloriesPer100g = 304.0, proteinPer100g = 0.3, carbsPer100g = 82.0, fatPer100g = 0.0),
+            Food("tahini-molasses", "Tahin pekmez", caloriesPer100g = 490.0, proteinPer100g = 10.0, carbsPer100g = 55.0, fatPer100g = 27.0),
         )
     }
 }
+
+private fun String.searchKey(): String = Normalizer.normalize(lowercase(Locale("tr", "TR")), Normalizer.Form.NFD)
+    .replace(Regex("\\p{M}+"), "")
+    .replace('ı', 'i')

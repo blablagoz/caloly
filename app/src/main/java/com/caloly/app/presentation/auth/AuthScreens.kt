@@ -35,20 +35,20 @@ fun LoginScreen(
     onRegister: () -> Unit,
     onForgot: () -> Unit,
 ) {
-    var email by remember { mutableStateOf("") }
+    var identifier by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     AuthPage(title = "Caloly", subtitle = "Beslenmeni takip et, birlikte ilerle.") {
-        CalolyField(email, { email = it }, "E-posta", KeyboardType.Email)
+        CalolyField(identifier, { identifier = it }, "E-posta veya kullanıcı adı")
         CalolyField(password, { password = it }, "Şifre", password = true)
         Feedback(state)
-        PrimaryButton("Giriş Yap", state.loading) { onPasswordLogin(email, password) }
-        OutlinedButton(onClick = { onOtp(email) }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(50)) {
+        PrimaryButton("Giriş Yap", state.loading) { onPasswordLogin(identifier, password) }
+        OutlinedButton(onClick = { onOtp(identifier) }, enabled = identifier.contains('@'), modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(50)) {
             Icon(Icons.Rounded.Email, null); Spacer(Modifier.width(8.dp)); Text("E-posta bağlantısıyla giriş")
         }
         OutlinedButton(onClick = onGoogle, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(50)) {
             Text("G  Google ile devam et", fontWeight = FontWeight.Bold)
         }
-        TextButton(onClick = onForgot) { Text("Şifremi unuttum") }
+        TextButton(onClick = onForgot) { Text("Şifremi unuttum / şifre oluştur") }
         TextButton(onClick = onRegister) { Text("Hesabın yok mu? Kayıt ol", color = CalolyLavender, fontWeight = FontWeight.Bold) }
     }
 }

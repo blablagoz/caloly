@@ -62,8 +62,11 @@ class AuthViewModel @Inject constructor(
         onSubmitted()
     }
 
-    fun signIn(email: String, password: String) = runAction {
-        repository.signIn(email, password)
+    fun signIn(identifier: String, password: String) = runAction {
+        require(identifier.isNotBlank()) { "E-posta veya kullanıcı adını girin." }
+        require(password.isNotBlank()) { "Şifrenizi girin." }
+        repository.signIn(identifier, password)
+        _action.value = AuthActionState(message = "Giriş başarılı.")
     }
 
     fun googleSignIn() = runAction { repository.signInWithGoogle() }
@@ -86,6 +89,24 @@ class AuthViewModel @Inject constructor(
         require(username.matches(Regex("[a-zA-Z0-9._]{3,24}"))) { "Geçerli bir kullanıcı adı girin." }
         repository.updateProfile(displayName, username)
         _action.value = AuthActionState(message = "Profil güncellendi.")
+        onDone()
+    }
+
+    fun updateHealthProfile(
+        birthDate: String,
+        heightCm: Int,
+        weightKg: Double,
+        targetWeightKg: Double?,
+        gender: String,
+        activityLevel: String,
+        nutritionGoal: String,
+        onDone: () -> Unit,
+    ) = runAction {
+        require(runCatching { java.time.LocalDate.parse(birthDate) }.isSuccess) { "Geçerli bir doğum tarihi girin." }
+        require(heightCm in 100..250) { "Boy 100-250 cm arasında olmalı." }
+        require(weightKg in 30.0..350.0) { "Kilo 30-350 kg arasında olmalı." }
+        repository.updateHealthProfile(birthDate, heightCm, weightKg, targetWeightKg, gender, activityLevel, nutritionGoal)
+        _action.value = AuthActionState(message = "Kişisel hedeflerin hazır.")
         onDone()
     }
 

@@ -18,6 +18,7 @@ data class Food(
 enum class FoodSource(val label: String) {
     CALOLY("Caloly"),
     OPEN_FOOD_FACTS("Open Food Facts"),
+    USER("Benim ürünüm"),
 }
 
 enum class FoodUnit(val label: String) {

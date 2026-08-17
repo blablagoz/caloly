@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,10 +38,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,6 +65,7 @@ import com.caloly.app.presentation.theme.CalolyLavender
 import com.caloly.app.presentation.theme.CalolyLavenderLight
 import com.caloly.app.presentation.theme.CalolyLavenderWhite
 import com.caloly.app.presentation.theme.CalolyMuted
+import com.caloly.app.presentation.theme.CalolySurface
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -228,6 +234,14 @@ fun AddFoodScreen(
             }
         }
     }
+
+    state.missingBarcode?.let { barcode ->
+        ManualFoodDialog(
+            barcode = barcode,
+            onDismiss = viewModel::dismissManualFood,
+            onSave = viewModel::createCustomFood,
+        )
+    }
 }
 
 @Composable
@@ -235,7 +249,7 @@ private fun FoodResultCard(food: Food, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CalolySurface),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(18.dp),
@@ -246,9 +260,7 @@ private fun FoodResultCard(food: Food, onClick: () -> Unit) {
                 Text(food.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 if (food.brand != null) Text(food.brand, color = CalolyLavender, fontSize = 13.sp)
                 Text("100 g • ${food.caloriesPer100g.toInt()} kcal", color = CalolyMuted, fontSize = 13.sp)
-                if (food.source == FoodSource.OPEN_FOOD_FACTS) {
-                    Text("Open Food Facts${food.barcode?.let { " • $it" } ?: ""}", color = CalolyMuted, fontSize = 11.sp)
-                }
+                if (food.source != FoodSource.CALOLY) Text("${food.source.label}${food.barcode?.let { " • $it" } ?: ""}", color = CalolyMuted, fontSize = 11.sp)
             }
             Text("+", color = CalolyGreen, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         }
@@ -269,7 +281,7 @@ private fun SelectedFoodEditor(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(30.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CalolySurface),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -340,6 +352,42 @@ private fun SelectedFoodEditor(
             }
         }
     }
+}
+
+@Composable
+private fun ManualFoodDialog(
+    barcode: String,
+    onDismiss: () -> Unit,
+    onSave: (String, Double, Double, Double, Double) -> Unit,
+) {
+    var name by remember(barcode) { mutableStateOf("") }
+    var calories by remember(barcode) { mutableStateOf("") }
+    var protein by remember(barcode) { mutableStateOf("") }
+    var carbs by remember(barcode) { mutableStateOf("") }
+    var fat by remember(barcode) { mutableStateOf("") }
+    fun number(value: String) = value.replace(',', '.').toDoubleOrNull() ?: 0.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ürünü Caloly'ye ekle") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("Barkod: $barcode", color = CalolyMuted)
+                Text("Besin değerlerini ambalajdaki 100 g / 100 ml bilgisine göre gir.", color = CalolyMuted, fontSize = 12.sp)
+                OutlinedTextField(name, { name = it }, label = { Text("Ürün adı") }, singleLine = true)
+                OutlinedTextField(calories, { calories = it }, label = { Text("Kalori") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    OutlinedTextField(protein, { protein = it }, label = { Text("Protein") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(carbs, { carbs = it }, label = { Text("Karb.") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(fat, { fat = it }, label = { Text("Yağ") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(name, number(calories), number(protein), number(carbs), number(fat)) }, enabled = name.isNotBlank()) { Text("Ürünü kullan") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Vazgeç") } },
+    )
 }
 
 private fun availableUnits(food: Food): List<FoodUnit> = when (food.defaultUnit) {

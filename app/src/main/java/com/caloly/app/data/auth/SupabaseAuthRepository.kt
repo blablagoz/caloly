@@ -1,5 +1,6 @@
 package com.caloly.app.data.auth
 
+import com.caloly.app.BuildConfig
 import com.caloly.app.domain.auth.AuthRepository
 import com.caloly.app.domain.auth.AuthState
 import com.caloly.app.domain.auth.CalolyUser
@@ -13,15 +14,27 @@ import io.github.jan.supabase.storage.storage
 import io.github.jan.supabase.auth.OtpType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class SupabaseAuthRepository @Inject constructor(
     private val supabase: SupabaseClient,
+    private val httpClient: OkHttpClient,
 ) : AuthRepository {
 
     override val authState: Flow<AuthState> = supabase.auth.sessionStatus.map { status ->
@@ -60,14 +73,15 @@ class SupabaseAuthRepository @Inject constructor(
     }
 
     override suspend fun signIn(email: String, password: String) {
+        val resolvedEmail = if ('@' in email) email.trim() else resolveUsername(email.trim(), password)
         supabase.auth.signInWith(Email) {
-            this.email = email.trim()
+            this.email = resolvedEmail
             this.password = password
         }
     }
 
     override suspend fun signInWithGoogle() {
-        supabase.auth.signInWith(Google)
+        supabase.auth.signInWith(Google, redirectUrl = "caloly://auth")
     }
 
     override suspend fun sendPasswordReset(email: String) {
@@ -83,6 +97,29 @@ class SupabaseAuthRepository @Inject constructor(
             data {
                 put("display_name", displayName.trim())
                 put("username", username.trim().lowercase())
+            }
+        }
+    }
+
+    override suspend fun updateHealthProfile(
+        birthDate: String,
+        heightCm: Int,
+        weightKg: Double,
+        targetWeightKg: Double?,
+        gender: String,
+        activityLevel: String,
+        nutritionGoal: String,
+    ) {
+        supabase.auth.updateUser {
+            data {
+                put("birth_date", birthDate)
+                put("height_cm", heightCm)
+                put("weight_kg", weightKg)
+                targetWeightKg?.let { put("target_weight_kg", it) }
+                put("gender", gender)
+                put("activity_level", activityLevel)
+                put("nutrition_goal", nutritionGoal)
+                put("onboarding_completed", true)
             }
         }
     }
@@ -104,6 +141,27 @@ class SupabaseAuthRepository @Inject constructor(
     override suspend fun signOut() {
         supabase.auth.signOut()
     }
+
+    private suspend fun resolveUsername(username: String, password: String): String = withContext(Dispatchers.IO) {
+        require(username.matches(Regex("[a-zA-Z0-9._]{3,24}"))) { "Geçerli bir e-posta veya kullanıcı adı girin." }
+        check(BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_PUBLISHABLE_KEY.isNotBlank()) { "Giriş servisi yapılandırılmamış." }
+        val payload = buildJsonObject {
+            put("identifier", username.lowercase())
+            put("password", password)
+        }.toString()
+        val request = Request.Builder()
+            .url("${BuildConfig.SUPABASE_URL}/functions/v1/login-identifier")
+            .header("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
+            .header("Authorization", "Bearer ${BuildConfig.SUPABASE_PUBLISHABLE_KEY}")
+            .post(payload.toRequestBody("application/json".toMediaType()))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) error("E-posta/kullanıcı adı veya şifre hatalı.")
+            Json.parseToJsonElement(body).jsonObject["email"]?.jsonPrimitive?.content
+                ?: error("Giriş servisi geçersiz yanıt verdi.")
+        }
+    }
 }
 
 private fun io.github.jan.supabase.auth.user.UserInfo.toCalolyUser(): CalolyUser {
@@ -114,5 +172,13 @@ private fun io.github.jan.supabase.auth.user.UserInfo.toCalolyUser(): CalolyUser
         displayName = metadata?.get("display_name")?.jsonPrimitive?.content,
         username = metadata?.get("username")?.jsonPrimitive?.content,
         avatarUrl = metadata?.get("avatar_url")?.jsonPrimitive?.content ?: metadata?.get("picture")?.jsonPrimitive?.content,
+        birthDate = metadata?.get("birth_date")?.jsonPrimitive?.content,
+        heightCm = metadata?.get("height_cm")?.jsonPrimitive?.intOrNull,
+        weightKg = metadata?.get("weight_kg")?.jsonPrimitive?.doubleOrNull,
+        targetWeightKg = metadata?.get("target_weight_kg")?.jsonPrimitive?.doubleOrNull,
+        gender = metadata?.get("gender")?.jsonPrimitive?.content,
+        activityLevel = metadata?.get("activity_level")?.jsonPrimitive?.content,
+        nutritionGoal = metadata?.get("nutrition_goal")?.jsonPrimitive?.content,
+        onboardingCompleted = metadata?.get("onboarding_completed")?.jsonPrimitive?.booleanOrNull == true,
     )
 }

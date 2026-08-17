@@ -9,7 +9,8 @@ fun OffProduct.toDomainOrNull(): Food? {
         ?: productName?.takeIf { it.isNotBlank() }
         ?: return null
     val nutrients = nutriments ?: return null
-    val calories = nutrients.calories100g ?: return null
+    val calories = nutrients.calories100g
+        ?: if (displayName.lowercase().let { it.contains(" su") || it.startsWith("su ") || it == "su" || it.contains("water") }) 0.0 else return null
     if (calories < 0) return null
 
     val packageGrams = parseGrams(quantity) ?: parseGrams(servingSize)

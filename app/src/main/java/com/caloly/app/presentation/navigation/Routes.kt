@@ -8,6 +8,8 @@ object Routes {
     const val FORGOT_PASSWORD = "forgot_password"
     const val CHANGE_PASSWORD = "change_password"
     const val ACCOUNT = "account"
+    const val ONBOARDING = "onboarding"
+    const val SHARING_SETTINGS = "sharing_settings"
     const val HOME = "home"
     const val ADD_FOOD = "add_food"
     const val SOCIAL = "social"

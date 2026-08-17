@@ -2,6 +2,7 @@ package com.caloly.app.presentation.home
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,6 +32,9 @@ import com.caloly.app.presentation.auth.AuthActionState
 import com.caloly.app.presentation.social.SocialScreen
 import com.caloly.app.presentation.theme.*
 import kotlin.math.max
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private enum class MainTab(val label: String, val icon: ImageVector) {
     HOME("Ana Sayfa", Icons.Rounded.Home), NUTRITION("Beslenme", Icons.Rounded.Restaurant),
@@ -48,6 +52,9 @@ fun MainShell(
     onConnectHealth: () -> Unit,
     onRefreshHealth: () -> Unit,
     onEditAccount: () -> Unit,
+    onEditGoals: () -> Unit,
+    onSecurity: () -> Unit,
+    onSharingSettings: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     var selected by rememberSaveable { mutableStateOf(MainTab.HOME) }
@@ -76,8 +83,8 @@ fun MainShell(
                 MainTab.HOME -> Dashboard(summary, user, onAddFood) { selected = MainTab.ACTIVITY }
                 MainTab.NUTRITION -> NutritionScreen(summary, onAddFood)
                 MainTab.ACTIVITY -> ActivityScreen(summary, healthState, onConnectHealth, onRefreshHealth)
-                MainTab.SOCIAL -> SocialScreen(onBack = { selected = MainTab.HOME })
-                MainTab.PROFILE -> ProfileScreen(user, authAction, onEditAccount, onSignOut)
+                MainTab.SOCIAL -> SocialScreen(onBack = null)
+                MainTab.PROFILE -> ProfileScreen(user, authAction, onEditAccount, onEditGoals, onSecurity, onSharingSettings, onSignOut)
             }
         }
     }
@@ -98,12 +105,20 @@ private fun Dashboard(summary: DailySummary, user: CalolyUser?, onAddFood: () ->
                 Column {
                     Text("CALOLY", fontSize = 12.sp, letterSpacing = 3.sp, color = CalolyLavender, fontWeight = FontWeight.Black)
                     Text("Merhaba, ${user?.displayName?.substringBefore(' ') ?: "sen"}", fontSize = 25.sp, color = CalolyText, fontWeight = FontWeight.ExtraBold)
-                    Text("Bugünün hedeflerine birlikte ulaşalım.", color = CalolyMuted)
+                    Text(LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM, EEEE", Locale.forLanguageTag("tr-TR"))), color = CalolyMuted)
                 }
                 GradientBadge(Icons.Rounded.AutoAwesome)
             }
         }
         item { CalorieRingCard(summary) }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompactMetric("Tüketilen", "${summary.consumedCalories}", "kcal", CalolyPink, Modifier.weight(1f))
+                CompactMetric("Hedef", "${summary.calorieGoal}", "kcal", CalolyLavender, Modifier.weight(1f))
+                CompactMetric("Protein", "${summary.proteinGrams}/${summary.proteinGoal}", "g", CalolyGreen, Modifier.weight(1f))
+                CompactMetric("Adım", "${summary.steps}", "", CalolyBlue, Modifier.weight(1f))
+            }
+        }
         item {
             Button(onClick = onAddFood, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CalolyPurple)) {
@@ -154,6 +169,11 @@ private fun CalorieRingCard(summary: DailySummary) {
 
 @Composable private fun MacroCard(s: DailySummary) = AppCard {
     Column(verticalArrangement = Arrangement.spacedBy(17.dp)) {
+        Row(Modifier.fillMaxWidth().height(10.dp).clip(CircleShape)) {
+            Box(Modifier.weight((s.carbsGrams * 4).coerceAtLeast(1).toFloat()).fillMaxHeight().background(CalolyBlue))
+            Box(Modifier.weight((s.proteinGrams * 4).coerceAtLeast(1).toFloat()).fillMaxHeight().background(CalolyPink))
+            Box(Modifier.weight((s.fatGrams * 9).coerceAtLeast(1).toFloat()).fillMaxHeight().background(CalolyOrange))
+        }
         MacroBar("Protein", s.proteinGrams, s.proteinGoal, CalolyPink)
         MacroBar("Karbonhidrat", s.carbsGrams, s.carbsGoal, CalolyBlue)
         MacroBar("Yağ", s.fatGrams, s.fatGoal, CalolyOrange)
@@ -181,6 +201,7 @@ private fun CalorieRingCard(summary: DailySummary) {
 @Composable private fun NutritionScreen(s: DailySummary, onAdd: () -> Unit) {
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) { PageHeader("Beslenme", "Bugünün öğünleri"); GradientBadge(Icons.Rounded.Restaurant) } }
+        item { Surface(shape = RoundedCornerShape(18.dp), color = CalolySurfaceHigh) { Row(Modifier.fillMaxWidth().padding(14.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) { Icon(Icons.Rounded.ChevronLeft, null, tint = CalolyMuted); Text(LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.forLanguageTag("tr-TR"))), fontWeight = FontWeight.Bold); Icon(Icons.Rounded.ChevronRight, null, tint = CalolyMuted) } } }
         item { MacroCard(s) }
         val groups = listOf("Kahvaltı", "Öğle", "Akşam", "Ara Öğün")
         groups.forEach { meal ->
@@ -207,18 +228,20 @@ private fun CalorieRingCard(summary: DailySummary) {
     }
 }
 
-@Composable private fun ProfileScreen(user: CalolyUser?, state: AuthActionState, onEdit: () -> Unit, onSignOut: () -> Unit) {
+private data class SettingItem(val label: String, val icon: ImageVector, val onClick: () -> Unit)
+
+@Composable private fun ProfileScreen(user: CalolyUser?, state: AuthActionState, onEdit: () -> Unit, onGoals: () -> Unit, onSecurity: () -> Unit, onSharing: () -> Unit, onSignOut: () -> Unit) {
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { PageHeader("Profil", "Hesap ve paylaşım ayarları") }
         item { AppCard { Row(verticalAlignment=Alignment.CenterVertically) { Surface(shape=CircleShape, color=CalolyPurple) { Box(Modifier.size(70.dp), contentAlignment=Alignment.Center) { Text((user?.displayName ?: user?.username ?: "C").take(1).uppercase(), fontSize=28.sp, fontWeight=FontWeight.Black) } }; Spacer(Modifier.width(15.dp)); Column { Text(user?.displayName ?: "Caloly kullanıcısı", fontSize=20.sp, fontWeight=FontWeight.ExtraBold); Text(user?.email.orEmpty(), color=CalolyMuted); user?.username?.let { Text("@$it", color=CalolyLavender) } } } } }
-        item { SettingsGroup("Hesap", listOf("Profil bilgilerini düzenle" to Icons.Rounded.Edit, "Şifre ve güvenlik" to Icons.Rounded.Lock), onEdit) }
-        item { SettingsGroup("Paylaşım", listOf("Partner paylaşım izinleri" to Icons.Rounded.Favorite, "Aktivite görünürlüğü" to Icons.Rounded.Visibility, "Beslenme detayları" to Icons.Rounded.Restaurant), {}) }
+        item { SettingsGroup("Hesap", listOf(SettingItem("Profil bilgilerini düzenle", Icons.Rounded.Edit, onEdit), SettingItem("Kişisel bilgiler ve hedefler", Icons.Rounded.TrackChanges, onGoals), SettingItem("Şifre ve güvenlik", Icons.Rounded.Lock, onSecurity))) }
+        item { SettingsGroup("Paylaşım", listOf(SettingItem("Partner paylaşım izinleri", Icons.Rounded.Favorite, onSharing), SettingItem("Aktivite görünürlüğü", Icons.Rounded.Visibility, onSharing), SettingItem("Beslenme detayları", Icons.Rounded.Restaurant, onSharing))) }
         state.error?.let { item { Text(it, color=MaterialTheme.colorScheme.error) } }
         item { OutlinedButton(onClick=onSignOut, Modifier.fillMaxWidth().height(52.dp), shape=RoundedCornerShape(18.dp)) { Icon(Icons.Rounded.Logout, null); Text(" Çıkış Yap") } }
     }
 }
 
-@Composable private fun SettingsGroup(title: String, rows: List<Pair<String,ImageVector>>, onClick: () -> Unit) = AppCard { Column { Text(title.uppercase(), color=CalolyLavender, fontSize=11.sp, letterSpacing=2.sp, fontWeight=FontWeight.Bold); rows.forEach { (label,icon) -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.Transparent).padding(vertical=14.dp), verticalAlignment=Alignment.CenterVertically) { Icon(icon,null,tint=CalolyMuted); Spacer(Modifier.width(12.dp)); Text(label,Modifier.weight(1f)); IconButton(onClick=onClick) { Icon(Icons.Rounded.ChevronRight,null,tint=CalolyMuted) } } } } }
+@Composable private fun SettingsGroup(title: String, rows: List<SettingItem>) = AppCard { Column { Text(title.uppercase(), color=CalolyLavender, fontSize=11.sp, letterSpacing=2.sp, fontWeight=FontWeight.Bold); rows.forEach { item -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=item.onClick).padding(vertical=14.dp), verticalAlignment=Alignment.CenterVertically) { Icon(item.icon,null,tint=CalolyMuted); Spacer(Modifier.width(12.dp)); Text(item.label,Modifier.weight(1f)); Icon(Icons.Rounded.ChevronRight,null,tint=CalolyMuted) } } } }
 
 @Composable private fun AppCard(content: @Composable ColumnScope.() -> Unit) = Card(Modifier.fillMaxWidth(), shape=RoundedCornerShape(24.dp), colors=CardDefaults.cardColors(containerColor=CalolySurface), border=CardDefaults.outlinedCardBorder()) { Column(Modifier.padding(18.dp), content=content) }
 @Composable private fun GradientBadge(icon: ImageVector) = Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(CalolyPurple,CalolyPink))), contentAlignment=Alignment.Center) { Icon(icon,null,tint=Color.White) }
@@ -249,3 +272,4 @@ private fun MealRow(name: String, meal: String, calories: Int, card: Boolean = t
     }
 }
 @Composable private fun MetricTile(title:String,value:String,icon:ImageVector,color:Color,modifier:Modifier)=Card(modifier,shape=RoundedCornerShape(22.dp),colors=CardDefaults.cardColors(containerColor=CalolySurface)){Column(Modifier.padding(17.dp)){Icon(icon,null,tint=color);Spacer(Modifier.height(10.dp));Text(title,color=CalolyMuted,fontSize=12.sp);Text(value,fontWeight=FontWeight.ExtraBold)}}
+@Composable private fun CompactMetric(title:String,value:String,unit:String,color:Color,modifier:Modifier)=Card(modifier,shape=RoundedCornerShape(18.dp),colors=CardDefaults.cardColors(containerColor=CalolySurface)){Column(Modifier.padding(horizontal=8.dp,vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally){Box(Modifier.size(6.dp).clip(CircleShape).background(color));Spacer(Modifier.height(6.dp));Text(title,color=CalolyMuted,fontSize=9.sp,maxLines=1);Text(value,fontWeight=FontWeight.Black,fontSize=14.sp,maxLines=1);if(unit.isNotEmpty())Text(unit,color=CalolyMuted,fontSize=9.sp)}}

@@ -19,7 +19,7 @@ object NetworkModule {
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor { chain ->
             val request = chain.request().newBuilder()
-                .header("User-Agent", "Caloly/0.3.0 (Android development build)")
+                .header("User-Agent", "Caloly/0.9.1 (https://github.com/blablagoz/caloly)")
                 .header("Accept-Language", "tr-TR,tr;q=0.9,en;q=0.7")
                 .build()
             chain.proceed(request)

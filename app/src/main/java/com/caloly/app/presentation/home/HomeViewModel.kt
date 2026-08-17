@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.caloly.app.domain.model.DailySummary
 import com.caloly.app.domain.model.HealthConnectAvailability
 import com.caloly.app.domain.model.HealthSummary
+import com.caloly.app.domain.auth.AuthRepository
+import com.caloly.app.domain.auth.AuthState
+import com.caloly.app.domain.auth.CalolyUser
 import com.caloly.app.domain.usecase.GetHealthStatusUseCase
 import com.caloly.app.domain.usecase.ObserveDailySummaryUseCase
 import com.caloly.app.domain.social.SocialRepository
@@ -34,6 +37,7 @@ class HomeViewModel @Inject constructor(
     observeDailySummary: ObserveDailySummaryUseCase,
     private val healthStatus: GetHealthStatusUseCase,
     private val socialRepository: SocialRepository,
+    authRepository: AuthRepository,
 ) : ViewModel() {
     private val today = LocalDate.now().toString()
     private val nutrition = observeDailySummary(today)
@@ -42,8 +46,13 @@ class HomeViewModel @Inject constructor(
 
     val requiredHealthPermissions: Set<String> get() = healthStatus.requiredPermissions
 
-    val summary: StateFlow<DailySummary> = combine(nutrition, _healthState) { food, health ->
+    val summary: StateFlow<DailySummary> = combine(nutrition, _healthState, authRepository.authState) { food, health, auth ->
+        val goals = (auth as? AuthState.SignedIn)?.user?.personalGoals()
         food.copy(
+            calorieGoal = goals?.calories ?: food.calorieGoal,
+            proteinGoal = goals?.protein ?: food.proteinGoal,
+            carbsGoal = goals?.carbs ?: food.carbsGoal,
+            fatGoal = goals?.fat ?: food.fatGoal,
             steps = health.health.steps.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             activeCalories = health.health.activeCalories,
             totalCaloriesBurned = health.health.totalCaloriesBurned,
@@ -80,4 +89,22 @@ class HomeViewModel @Inject constructor(
     }
 
     fun onHealthPermissionsResult() = refreshHealth()
+}
+
+private data class PersonalGoals(val calories: Int, val protein: Int, val carbs: Int, val fat: Int)
+
+private fun CalolyUser.personalGoals(): PersonalGoals? {
+    val height = heightCm ?: return null
+    val weight = weightKg ?: return null
+    val birthday = birthDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+    val age = java.time.Period.between(birthday, LocalDate.now()).years.coerceIn(16, 100)
+    val genderOffset = when (gender) { "MALE" -> 5.0; "FEMALE" -> -161.0; else -> -78.0 }
+    val bmr = 10.0 * weight + 6.25 * height - 5.0 * age + genderOffset
+    val activityMultiplier = when (activityLevel) { "SEDENTARY" -> 1.2; "LIGHT" -> 1.375; "ACTIVE" -> 1.725; else -> 1.55 }
+    val goalAdjustment = when (nutritionGoal) { "LOSE" -> -400; "GAIN" -> 300; else -> 0 }
+    val calories = (bmr * activityMultiplier + goalAdjustment).toInt().coerceIn(1200, 4500)
+    val protein = (weight * if (nutritionGoal == "LOSE") 1.8 else 1.6).toInt().coerceAtLeast(50)
+    val fat = (calories * .27 / 9).toInt()
+    val carbs = ((calories - protein * 4 - fat * 9) / 4).coerceAtLeast(80)
+    return PersonalGoals(calories, protein, carbs, fat)
 }

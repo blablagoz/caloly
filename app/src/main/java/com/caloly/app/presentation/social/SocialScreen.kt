@@ -24,7 +24,7 @@ import kotlin.math.roundToInt
 
 @Composable
 fun SocialScreen(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     viewModel: SocialViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -33,7 +33,7 @@ fun SocialScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Birlikte", color = CalolyLavender, fontWeight = FontWeight.ExtraBold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, null) } },
+                navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, null) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         }

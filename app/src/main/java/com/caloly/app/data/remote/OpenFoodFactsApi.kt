@@ -16,7 +16,7 @@ interface OpenFoodFactsApi {
         @Query("fields") fields: String = SEARCH_FIELDS,
     ): OffSearchResponse
 
-    @GET("api/v3.6/product/{barcode}.json")
+    @GET("api/v2/product/{barcode}.json")
     suspend fun productByBarcode(
         @Path("barcode") barcode: String,
         @Query("fields") fields: String = PRODUCT_FIELDS,

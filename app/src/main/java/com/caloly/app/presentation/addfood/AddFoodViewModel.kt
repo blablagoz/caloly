@@ -3,6 +3,7 @@ package com.caloly.app.presentation.addfood
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.caloly.app.domain.model.Food
+import com.caloly.app.domain.model.FoodSource
 import com.caloly.app.domain.model.FoodUnit
 import com.caloly.app.domain.model.MealType
 import com.caloly.app.domain.usecase.AddFoodLogUseCase
@@ -14,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import java.time.LocalDate
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -24,6 +27,7 @@ class AddFoodViewModel @Inject constructor(
     private val findFoodByBarcode: FindFoodByBarcodeUseCase,
     private val addFoodLog: AddFoodLogUseCase,
 ) : ViewModel() {
+    private var onlineSearchJob: Job? = null
     private val _uiState = MutableStateFlow(AddFoodUiState())
     val uiState: StateFlow<AddFoodUiState> = _uiState.asStateFlow()
 
@@ -32,6 +36,21 @@ class AddFoodViewModel @Inject constructor(
     fun onQueryChange(value: String) {
         _uiState.update { it.copy(query = value, errorMessage = null, showingRemoteResults = false) }
         refreshLocalResults()
+        onlineSearchJob?.cancel()
+        if (value.trim().length >= 2) {
+            onlineSearchJob = viewModelScope.launch {
+                delay(450)
+                val local = searchFoods.local(value)
+                searchFoods.remote(value).onSuccess { remote ->
+                    _uiState.update { current ->
+                        if (current.query != value) current else current.copy(
+                            results = (local + remote).distinctBy { it.barcode ?: it.id }.take(40),
+                            showingRemoteResults = remote.isNotEmpty(),
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun onMealSelected(meal: MealType) = _uiState.update { it.copy(mealType = meal) }
@@ -93,7 +112,7 @@ class AddFoodViewModel @Inject constructor(
             findFoodByBarcode(barcode)
                 .onSuccess { food ->
                     if (food == null) {
-                        _uiState.update { it.copy(isLoading = false, errorMessage = "Bu barkod Open Food Facts'te bulunamadı.") }
+                        _uiState.update { it.copy(isLoading = false, missingBarcode = barcode.filter(Char::isDigit), errorMessage = "Ürün veritabanında bulunamadı. Barkodu koruyarak ürünü ekleyebilirsin.") }
                     } else {
                         _uiState.update {
                             it.copy(
@@ -113,6 +132,24 @@ class AddFoodViewModel @Inject constructor(
     }
 
     fun onScannerError(message: String) = _uiState.update { it.copy(errorMessage = message) }
+
+    fun createCustomFood(name: String, calories: Double, protein: Double, carbs: Double, fat: Double) {
+        require(name.isNotBlank())
+        val food = Food(
+            id = "user:${_uiState.value.missingBarcode ?: System.currentTimeMillis()}",
+            name = name.trim(),
+            caloriesPer100g = calories.coerceAtLeast(0.0),
+            proteinPer100g = protein.coerceAtLeast(0.0),
+            carbsPer100g = carbs.coerceAtLeast(0.0),
+            fatPer100g = fat.coerceAtLeast(0.0),
+            barcode = _uiState.value.missingBarcode,
+            source = FoodSource.USER,
+        )
+        _uiState.update { it.copy(missingBarcode = null, errorMessage = null) }
+        onFoodSelected(food)
+    }
+
+    fun dismissManualFood() = _uiState.update { it.copy(missingBarcode = null) }
 
     fun save(onSaved: () -> Unit) {
         val state = _uiState.value
@@ -145,6 +182,7 @@ data class AddFoodUiState(
     val unit: FoodUnit = FoodUnit.GRAM,
     val isLoading: Boolean = false,
     val showingRemoteResults: Boolean = false,
+    val missingBarcode: String? = null,
     val errorMessage: String? = null,
 ) {
     val amount: Double get() = amountText.replace(',', '.').toDoubleOrNull() ?: 0.0
