@@ -12,7 +12,23 @@ interface OpenFoodFactsApi {
         @Query("search_simple") searchSimple: Int = 1,
         @Query("action") action: String = "process",
         @Query("json") json: Int = 1,
-        @Query("page_size") pageSize: Int = 20,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 25,
+        @Query("lc") languageCode: String,
+        @Query("cc") countryCode: String,
+        @Query("sort_by") sortBy: String = "unique_scans_n",
+        @Query("fields") fields: String = SEARCH_FIELDS,
+    ): OffSearchResponse
+
+    @GET("cgi/search.pl")
+    suspend fun searchByBrand(
+        @Query("tagtype_0") tagType: String = "brands",
+        @Query("tag_contains_0") tagContains: String = "contains",
+        @Query("tag_0") brand: String,
+        @Query("action") action: String = "process",
+        @Query("json") json: Int = 1,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 25,
         @Query("lc") languageCode: String,
         @Query("cc") countryCode: String,
         @Query("sort_by") sortBy: String = "unique_scans_n",
@@ -33,6 +49,10 @@ interface OpenFoodFactsApi {
 
 data class OffSearchResponse(
     val products: List<OffProduct> = emptyList(),
+    val count: Int? = null,
+    val page: Int? = null,
+    @SerializedName("page_size") val pageSize: Int? = null,
+    @SerializedName("page_count") val pageCount: Int? = null,
 )
 
 data class OffProductResponse(

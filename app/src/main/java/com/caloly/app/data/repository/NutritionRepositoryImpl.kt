@@ -12,6 +12,7 @@ import com.caloly.app.data.remote.toDomainOrNull
 import com.caloly.app.domain.model.DailySummary
 import com.caloly.app.domain.model.Food
 import com.caloly.app.domain.model.FoodLog
+import com.caloly.app.domain.model.FoodSearchPage
 import com.caloly.app.domain.model.FoodUnit
 import com.caloly.app.domain.model.MealType
 import com.caloly.app.domain.model.NutritionTemplate
@@ -134,6 +135,12 @@ class NutritionRepositoryImpl @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
+    private val knownBrandKeys: Set<String> by lazy {
+        (foodCatalog + bundledTurkeyFoods + cafeMenuFoods)
+            .mapNotNull { it.brand?.takeIf(String::isNotBlank)?.searchKey() }
+            .toSet()
+    }
+
     override val localCatalogSize: Int
         get() = (if (localFoodsDelegate.isInitialized()) localFoods.size else 0) +
             savedFoods.values.count { it.food.source == com.caloly.app.domain.model.FoodSource.USER }
@@ -169,27 +176,52 @@ class NutritionRepositoryImpl @Inject constructor(
             .take(40)
     }
 
-    override suspend fun searchRemoteFoods(query: String): Result<List<Food>> = runCatching {
+    override suspend fun searchRemoteFoods(query: String, page: Int): Result<FoodSearchPage> = runCatching {
         require(query.trim().length >= 2) { "En az 2 karakter gir." }
+        require(page > 0) { "Sayfa numarası geçersiz." }
         val locale = Locale.getDefault()
         val normalizedQuery = query.searchKey()
-        val openFoods = openFoodFactsApi.search(
-            query = query.trim(),
-            languageCode = locale.language.ifBlank { "tr" },
-            countryCode = locale.country.lowercase(Locale.ROOT).ifBlank { if (locale.language == "tr") "tr" else "world" },
-        )
-            .products
+        val languageCode = locale.language.ifBlank { "tr" }
+        val countryCode = locale.country.lowercase(Locale.ROOT).ifBlank { if (languageCode == "tr") "tr" else "world" }
+        val isBrandQuery = normalizedQuery in knownBrandKeys
+        val response = if (isBrandQuery) {
+            openFoodFactsApi.searchByBrand(
+                brand = query.trim(),
+                page = page,
+                languageCode = languageCode,
+                countryCode = countryCode,
+            )
+        } else {
+            openFoodFactsApi.search(
+                query = query.trim(),
+                page = page,
+                languageCode = languageCode,
+                countryCode = countryCode,
+            )
+        }
+        val openFoods = response.products
             .mapNotNull { it.toDomainOrNull(locale.language) }
             .mapNotNull { food -> food.searchScore(normalizedQuery).takeIf { it > 0 }?.let { it to food } }
             .distinctBy { (_, food) -> food.barcode ?: "${food.name.searchKey()}:${food.brand?.searchKey()}" }
-        val cafeFoods = cafeMenuFoods.mapNotNull { food ->
-            food.searchScore(normalizedQuery).takeIf { it > 0 }?.let { it to food }
+        val cafeFoods = if (page == 1) {
+            cafeMenuFoods.mapNotNull { food ->
+                food.searchScore(normalizedQuery).takeIf { it > 0 }?.let { it to food }
+            }
+        } else {
+            emptyList()
         }
-        (cafeFoods + openFoods)
+        val items = (cafeFoods + openFoods)
             .sortedWith(compareByDescending<Pair<Int, Food>> { it.first }.thenBy { it.second.name })
             .map { it.second }
             .distinctBy { it.barcode ?: "${it.brand?.searchKey()}:${it.name.searchKey()}" }
-            .take(50)
+        val totalPages = response.totalPages()
+        FoodSearchPage(
+            items = items,
+            currentPage = page.coerceAtMost(totalPages),
+            totalPages = totalPages,
+            totalResults = (response.count ?: 0) +
+                cafeMenuFoods.count { it.searchScore(normalizedQuery) > 0 },
+        )
     }
 
     override suspend fun findFoodByBarcode(barcode: String): Result<Food?> = runCatching {
@@ -470,6 +502,13 @@ class NutritionRepositoryImpl @Inject constructor(
             Food("tahini-molasses", "Tahin pekmez", caloriesPer100g = 490.0, proteinPer100g = 10.0, carbsPer100g = 55.0, fatPer100g = 27.0),
         )
     }
+}
+
+private fun OffSearchResponse.totalPages(): Int {
+    pageCount?.takeIf { it > 0 }?.let { return it }
+    val size = pageSize?.takeIf { it > 0 } ?: 25
+    val resultCount = count?.coerceAtLeast(0) ?: products.size
+    return maxOf(1, (resultCount + size - 1) / size)
 }
 
 internal fun String.searchKey(): String = Normalizer.normalize(lowercase(Locale.forLanguageTag("tr-TR")), Normalizer.Form.NFD)

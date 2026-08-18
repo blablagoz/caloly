@@ -59,7 +59,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.caloly.app.domain.model.Food
-import com.caloly.app.domain.model.FoodSource
 import com.caloly.app.domain.model.FoodUnit
 import com.caloly.app.domain.model.MealType
 import com.caloly.app.presentation.theme.CalolyGreen
@@ -162,7 +161,7 @@ fun AddFoodScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Button(
-                            onClick = viewModel::searchOnline,
+                            onClick = { viewModel.searchOnline() },
                             enabled = !state.isLoading,
                             modifier = Modifier.weight(1f).height(52.dp),
                             shape = RoundedCornerShape(50),
@@ -207,16 +206,24 @@ fun AddFoodScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column {
                             Text(
-                                if (state.query.isBlank()) "Favoriler, son kullanılanlar ve hızlı ekle" else "Caloly ve çevrimdışı eşleşmeler",
+                                if (state.query.isBlank()) "Favoriler, son kullanılanlar ve hızlı ekle" else "Eşleşmeler",
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 18.sp,
                             )
-                            Text("${state.catalogSize} çevrimdışı ürün · yalnızca ilgili eşleşmeler", color = CalolyMuted, fontSize = 11.sp)
+                            Text(
+                                if (state.hasSearchedOnline) {
+                                    "${state.visibleResults.size} ürün · Sayfa ${state.onlinePage}/${state.totalOnlinePages}"
+                                } else {
+                                    "${state.visibleResults.size} ürün"
+                                },
+                                color = CalolyMuted,
+                                fontSize = 11.sp,
+                            )
                         }
                         if (state.isLocalLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CalolyLavender)
                     }
                 }
-                items(state.localResults, key = { "local:${it.id}" }) { food ->
+                items(state.visibleResults, key = { "result:${it.barcode ?: it.id}" }) { food ->
                     FoodResultCard(
                         food = food,
                         isFavorite = food.id in state.favoriteIds,
@@ -224,21 +231,20 @@ fun AddFoodScreen(
                         onClick = { viewModel.onFoodSelected(food) },
                     )
                 }
-                if (state.hasSearchedOnline && state.onlineResults.isNotEmpty()) {
+                if (state.hasSearchedOnline && state.totalOnlinePages > 1) {
                     item {
-                        Text("İnternet eşleşmeleri", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    }
-                    items(state.onlineResults, key = { "online:${it.id}" }) { food ->
-                        FoodResultCard(
-                            food = food,
-                            isFavorite = food.id in state.favoriteIds,
-                            onFavorite = { viewModel.toggleFavorite(food) },
-                            onClick = { viewModel.onFoodSelected(food) },
+                        SearchPagination(
+                            currentPage = state.onlinePage,
+                            totalPages = state.totalOnlinePages,
+                            enabled = !state.isOnlineLoading,
+                            onPageSelected = viewModel::searchOnline,
                         )
                     }
+                }
+                if (state.hasSearchedOnline && state.visibleResults.isNotEmpty()) {
                     item {
                         Text(
-                            "Paketli ürünler Open Food Facts'ten; kafe menülerindeki resmî olmayan değerler tahmini olarak etiketlenir. Kaydetmeden önce porsiyonu kontrol et.",
+                            "Besin değerleri ürünün porsiyonuna ve hazırlanışına göre değişebilir. Kaydetmeden önce miktarı kontrol et.",
                             color = CalolyMuted,
                             fontSize = 10.sp,
                         )
@@ -247,7 +253,7 @@ fun AddFoodScreen(
                 if (state.allResultsEmpty && !state.isLocalLoading && state.errorMessage == null) {
                     item {
                         Text(
-                            "Yerel katalogda bulunamadı. İnternette Ara veya Barkod Tara ile paketli ürün veritabanını kullanabilirsin.",
+                            "Eşleşme bulunamadı. İnternette Ara veya Barkod Tara ile daha fazla ürüne ulaşabilirsin.",
                             color = CalolyMuted,
                             modifier = Modifier.padding(vertical = 8.dp),
                         )
@@ -292,7 +298,6 @@ private fun FoodResultCard(food: Food, isFavorite: Boolean, onFavorite: () -> Un
                 Text(food.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 if (food.brand != null) Text(food.brand, color = CalolyLavender, fontSize = 13.sp)
                 Text("100 g • ${food.caloriesPer100g.toInt()} kcal", color = CalolyMuted, fontSize = 13.sp)
-                Text("${food.source.label}${food.barcode?.let { " • $it" } ?: ""}", color = CalolyMuted, fontSize = 11.sp)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(onClick = onFavorite) {
@@ -306,6 +311,58 @@ private fun FoodResultCard(food: Food, isFavorite: Boolean, onFavorite: () -> Un
             }
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchPagination(
+    currentPage: Int,
+    totalPages: Int,
+    enabled: Boolean,
+    onPageSelected: (Int) -> Unit,
+) {
+    val pages = paginationWindow(currentPage, totalPages)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Diğer sonuçlar", color = CalolyMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            TextButton(
+                onClick = { onPageSelected(currentPage - 1) },
+                enabled = enabled && currentPage > 1,
+            ) { Text("Önceki") }
+
+            pages.forEachIndexed { index, page ->
+                if (index > 0 && page - pages[index - 1] > 1) {
+                    Text("…", Modifier.padding(horizontal = 3.dp, vertical = 12.dp), color = CalolyMuted)
+                }
+                if (page == currentPage) {
+                    Button(onClick = {}, enabled = false, shape = RoundedCornerShape(50)) { Text(page.toString()) }
+                } else {
+                    OutlinedButton(
+                        onClick = { onPageSelected(page) },
+                        enabled = enabled,
+                        shape = RoundedCornerShape(50),
+                    ) { Text(page.toString()) }
+                }
+            }
+
+            TextButton(
+                onClick = { onPageSelected(currentPage + 1) },
+                enabled = enabled && currentPage < totalPages,
+            ) { Text("Sonraki") }
+        }
+    }
+}
+
+internal fun paginationWindow(currentPage: Int, totalPages: Int): List<Int> {
+    if (totalPages <= 1) return listOf(1)
+    if (totalPages <= 5) return (1..totalPages).toList()
+    return setOf(1, currentPage - 1, currentPage, currentPage + 1, totalPages)
+        .filter { it in 1..totalPages }
+        .sorted()
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -329,7 +386,6 @@ private fun SelectedFoodEditor(
                 Column(Modifier.weight(1f)) {
                     Text(food.name, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
                     if (food.brand != null) Text(food.brand, color = CalolyLavender, fontWeight = FontWeight.SemiBold)
-                    if (food.source == FoodSource.OPEN_FOOD_FACTS) Text("Open Food Facts", color = CalolyMuted, fontSize = 12.sp)
                 }
                 IconButton(onClick = onClear) { Icon(Icons.Rounded.Close, contentDescription = "Seçimi kaldır") }
             }

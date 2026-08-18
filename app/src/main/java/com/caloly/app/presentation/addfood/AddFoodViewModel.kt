@@ -46,7 +46,16 @@ class AddFoodViewModel @Inject constructor(
         searchGeneration++
         onlineSearchJob?.cancel()
         _uiState.update {
-            it.copy(query = value, onlineResults = emptyList(), hasSearchedOnline = false, isOnlineLoading = false, errorMessage = null)
+            it.copy(
+                query = value,
+                onlineResults = emptyList(),
+                onlinePage = 1,
+                totalOnlinePages = 1,
+                totalOnlineResults = 0,
+                hasSearchedOnline = false,
+                isOnlineLoading = false,
+                errorMessage = null,
+            )
         }
         launchLocalSearch(value, if (value.isBlank()) 0 else 220)
     }
@@ -72,27 +81,39 @@ class AddFoodViewModel @Inject constructor(
     fun onUnitSelected(unit: FoodUnit) = _uiState.update { it.copy(unit = unit) }
     fun clearSelection() = _uiState.update { it.copy(selectedFood = null) }
 
-    fun searchOnline() {
+    fun searchOnline(page: Int = 1) {
         val query = _uiState.value.query.trim()
         if (query.length < 2) {
             _uiState.update { it.copy(errorMessage = "İnternette aramak için en az 2 karakter gir.") }
             return
         }
+        val requestedPage = page.coerceAtLeast(1)
         val generation = ++searchGeneration
         localSearchJob?.cancel()
         onlineSearchJob?.cancel()
         onlineSearchJob = viewModelScope.launch {
             _uiState.update { it.copy(isOnlineLoading = true, errorMessage = null) }
-            val local = withContext(Dispatchers.Default) { searchFoods.local(query) }
-            val remoteResult = searchFoods.remote(query)
+            val local = if (requestedPage == 1) {
+                withContext(Dispatchers.Default) { searchFoods.local(query) }
+            } else {
+                _uiState.value.localResults
+            }
+            val remoteResult = searchFoods.remote(query, requestedPage)
             if (generation != searchGeneration || _uiState.value.query.trim() != query) return@launch
-            remoteResult.onSuccess { remote ->
+            remoteResult.onSuccess { remotePage ->
                 val localKeys = local.mapTo(hashSetOf(), ::resultKey)
-                val uniqueRemote = remote.filterNot { resultKey(it) in localKeys }
+                val uniqueRemote = if (requestedPage == 1) {
+                    remotePage.items.filterNot { resultKey(it) in localKeys }
+                } else {
+                    remotePage.items
+                }
                 _uiState.update {
                     it.copy(
                         localResults = local,
                         onlineResults = uniqueRemote,
+                        onlinePage = remotePage.currentPage,
+                        totalOnlinePages = remotePage.totalPages,
+                        totalOnlineResults = remotePage.totalResults,
                         catalogSize = searchFoods.localCatalogSize,
                         isLocalLoading = false,
                         isOnlineLoading = false,
@@ -100,7 +121,7 @@ class AddFoodViewModel @Inject constructor(
                         errorMessage = if (local.isEmpty() && uniqueRemote.isEmpty()) "Bu aramayla eşleşen bir ürün bulunamadı." else null,
                     )
                 }
-            }.onFailure { error ->
+            }.onFailure {
                 _uiState.update {
                     it.copy(
                         localResults = local,
@@ -108,7 +129,7 @@ class AddFoodViewModel @Inject constructor(
                         isLocalLoading = false,
                         isOnlineLoading = false,
                         hasSearchedOnline = true,
-                        errorMessage = error.message ?: "İnternet veritabanına ulaşılamadı. Çevrimdışı eşleşmeler gösteriliyor.",
+                        errorMessage = "İnternet araması şu anda tamamlanamadı. Mevcut eşleşmeler gösteriliyor.",
                     )
                 }
             }
@@ -126,7 +147,16 @@ class AddFoodViewModel @Inject constructor(
                     }
                 } else {
                     _uiState.update {
-                        it.copy(isOnlineLoading = false, query = food.name, localResults = emptyList(), onlineResults = listOf(food), hasSearchedOnline = true)
+                        it.copy(
+                            isOnlineLoading = false,
+                            query = food.name,
+                            localResults = emptyList(),
+                            onlineResults = listOf(food),
+                            onlinePage = 1,
+                            totalOnlinePages = 1,
+                            totalOnlineResults = 1,
+                            hasSearchedOnline = true,
+                        )
                     }
                     onFoodSelected(food)
                 }
@@ -189,6 +219,9 @@ data class AddFoodUiState(
     val query: String = "",
     val localResults: List<Food> = emptyList(),
     val onlineResults: List<Food> = emptyList(),
+    val onlinePage: Int = 1,
+    val totalOnlinePages: Int = 1,
+    val totalOnlineResults: Int = 0,
     val selectedFood: Food? = null,
     val amountText: String = "100",
     val unit: FoodUnit = FoodUnit.GRAM,
@@ -201,7 +234,9 @@ data class AddFoodUiState(
     val favoriteIds: Set<String> = emptySet(),
 ) {
     val isLoading: Boolean get() = isOnlineLoading
-    val allResultsEmpty: Boolean get() = localResults.isEmpty() && onlineResults.isEmpty()
+    val visibleResults: List<Food>
+        get() = mergeFoodResults(localResults, onlineResults, hasSearchedOnline, onlinePage)
+    val allResultsEmpty: Boolean get() = visibleResults.isEmpty()
     val amount: Double get() = amountText.replace(',', '.').toDoubleOrNull() ?: 0.0
     private val estimatedGrams: Double get() = selectedFood?.let { food ->
         when (unit) { FoodUnit.GRAM, FoodUnit.MILLILITER -> amount; else -> amount * food.gramsPerUnit }
@@ -211,3 +246,23 @@ data class AddFoodUiState(
     val previewCarbs: Int get() = selectedFood?.let { (it.carbsPer100g * estimatedGrams / 100.0).roundToInt() } ?: 0
     val previewFat: Int get() = selectedFood?.let { (it.fatPer100g * estimatedGrams / 100.0).roundToInt() } ?: 0
 }
+
+internal fun mergeFoodResults(
+    local: List<Food>,
+    online: List<Food>,
+    hasSearchedOnline: Boolean,
+    onlinePage: Int,
+): List<Food> {
+    if (!hasSearchedOnline) return local.distinctBy(::foodResultKey)
+    if (onlinePage > 1) return online.distinctBy(::foodResultKey)
+
+    val merged = ArrayList<Food>(local.size + online.size)
+    repeat(maxOf(local.size, online.size)) { index ->
+        local.getOrNull(index)?.let(merged::add)
+        online.getOrNull(index)?.let(merged::add)
+    }
+    return merged.distinctBy(::foodResultKey)
+}
+
+private fun foodResultKey(food: Food): String =
+    food.barcode ?: "${food.brand.orEmpty()}|${food.name}".lowercase(Locale.ROOT)

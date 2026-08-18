@@ -16,6 +16,13 @@ data class Food(
     val searchAliases: List<String> = emptyList(),
 )
 
+data class FoodSearchPage(
+    val items: List<Food>,
+    val currentPage: Int,
+    val totalPages: Int,
+    val totalResults: Int,
+)
+
 enum class FoodSource(val label: String) {
     CALOLY("Caloly tahmini"),
     CAFE_MENU("Kafe menüsü · tahmini"),

@@ -1,6 +1,10 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const headers = { "Content-Type": "application/json" };
+const headers = {
+  "Content-Type": "application/json",
+  "Cache-Control": "no-store",
+};
 
 const normalizeUsername = (value: string) =>
   value.trim().normalize("NFC").toLocaleLowerCase("tr-TR");
@@ -9,7 +13,12 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
   try {
     const { identifier, password } = await request.json();
-    if (typeof identifier !== "string" || typeof password !== "string") {
+    if (
+      typeof identifier !== "string" ||
+      typeof password !== "string" ||
+      identifier.trim().length < 3 ||
+      password.length < 6
+    ) {
       return new Response(JSON.stringify({ error: "invalid_credentials" }), { status: 400, headers });
     }
 

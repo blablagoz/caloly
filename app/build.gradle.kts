@@ -20,8 +20,8 @@ android {
         applicationId = "com.caloly.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.9.4"
+        versionCode = 23
+        versionName = "0.9.5"
 
         val supabaseUrl = providers.gradleProperty("SUPABASE_URL").orElse("").get()
         val supabaseKey = providers.gradleProperty("SUPABASE_PUBLISHABLE_KEY").orElse("").get()
