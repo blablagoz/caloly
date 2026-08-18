@@ -18,3 +18,21 @@ attributes its nutritional records to OpenNutrition and other listed public
 nutrition sources. Caloly retains only the Turkish names, search aliases,
 calories and macros required for food logging; proprietary Leana entries are
 not part of the ODbL-only download.
+
+## Curated cafe menu estimates
+
+The explicit online-search flow includes a small curated Turkish cafe menu index
+for Starbucks, Espressolab, Gloria Jean's Coffees and Nevada Coffee. Menu names
+were checked against the brands' public Turkey menus where available. Nutrition
+values that are not published by the Turkey operator are recipe-and-portion
+estimates and are always labelled `Kafe menüsü · tahmini` in the app; they must
+not be treated as an official declaration by the brand.
+
+Reference menus:
+
+- https://www.starbucks.com.tr/menu
+- https://espressolab.com/kurumsal/menu
+- https://gloriajeans.com.tr/pages/menu
+- https://www.gloriajeans.com/pages/nutritional-information-table
+- https://www.nevadacoffee.co/menu
+- https://www.nevada.tiklamenu.tr/atakoy-menu/

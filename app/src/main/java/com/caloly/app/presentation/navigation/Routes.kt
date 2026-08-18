@@ -10,6 +10,7 @@ object Routes {
     const val ACCOUNT = "account"
     const val ONBOARDING = "onboarding"
     const val SHARING_SETTINGS = "sharing_settings"
+    const val NOTIFICATION_SETTINGS = "notification_settings"
     const val HOME = "home"
     const val ADD_FOOD = "add_food"
     const val SOCIAL = "social"

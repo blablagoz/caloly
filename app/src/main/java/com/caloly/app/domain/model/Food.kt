@@ -18,6 +18,7 @@ data class Food(
 
 enum class FoodSource(val label: String) {
     CALOLY("Caloly tahmini"),
+    CAFE_MENU("Kafe menüsü · tahmini"),
     OPEN_FOOD_FACTS("Open Food Facts"),
     OPEN_NUTRITION("Açık besin verisi (ODbL)"),
     USER("Benim ürünüm"),
@@ -26,6 +27,7 @@ enum class FoodSource(val label: String) {
 enum class FoodUnit(val label: String) {
     GRAM("g"),
     MILLILITER("ml"),
+    SERVING("porsiyon"),
     PIECE("adet"),
     SLICE("dilim"),
     PACKAGE("paket"),

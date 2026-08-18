@@ -80,6 +80,7 @@ fun MainShell(
     onEditAccount: () -> Unit,
     onEditBody: () -> Unit,
     onSecurity: () -> Unit,
+    onNotifications: () -> Unit,
     onSharingSettings: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -119,11 +120,15 @@ fun MainShell(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (selected) {
-                MainTab.HOME -> Dashboard(summary, healthState, selectedDate, loggedDates, user, onPreviousDate, onNextDate, onSelectDate, onAddFood) { selected = MainTab.ACTIVITY }
+                MainTab.HOME -> Dashboard(
+                    summary, healthState, selectedDate, loggedDates, user, onPreviousDate, onNextDate, onSelectDate, onAddFood,
+                    onNutrition = { selected = MainTab.NUTRITION },
+                    onActivity = { selected = MainTab.ACTIVITY },
+                )
                 MainTab.NUTRITION -> NutritionScreen(summary, selectedDate, loggedDates, templates, templateAction, onPreviousDate, onNextDate, onSelectDate, onAddFood, onSaveMeal, onSaveDay, onApplyTemplate, onDeleteTemplate, onDeleteLog, onDeleteMeal, onDeleteDay, onUpdateLog)
                 MainTab.ACTIVITY -> ActivityScreen(summary, healthState, user, onConnectHealth, onRefreshHealth)
                 MainTab.SOCIAL -> SocialScreen(onBack = null)
-                MainTab.PROFILE -> ProfileScreen(user, authAction, onEditAccount, onEditBody, onSecurity, onSharingSettings, onSignOut)
+                MainTab.PROFILE -> ProfileScreen(user, authAction, onEditAccount, onEditBody, onSecurity, onNotifications, onSharingSettings, onSignOut)
             }
         }
     }
@@ -140,6 +145,7 @@ private fun Dashboard(
     onNext: () -> Unit,
     onSelect: (LocalDate) -> Unit,
     onAddFood: () -> Unit,
+    onNutrition: () -> Unit,
     onActivity: () -> Unit,
 ) {
     var calendarOpen by remember { mutableStateOf(false) }
@@ -168,13 +174,13 @@ private fun Dashboard(
                 Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Yemek Ekle", fontWeight = FontWeight.Bold)
             }
         }
-        item { SectionLabel("Makro dağılımı", "Bugün yenilenler") }
-        item { MacroCard(summary) }
+        item { SectionLabel("Makro dağılımı", "Bugün yenilenler", onNutrition) }
+        item { Box(Modifier.clickable(onClick = onNutrition)) { MacroCard(summary) } }
         item { SectionLabel("Günlük aktivite", "Detaylar", onActivity) }
-        item { ActivityPreview(summary, healthState) }
+        item { Box(Modifier.clickable(onClick = onActivity)) { ActivityPreview(summary, healthState) } }
         if (summary.logs.isNotEmpty()) {
-            item { SectionLabel("Son öğünler", "") }
-            items(summary.logs.take(3)) { MealRow(it.foodName, it.mealType.label, it.calories) }
+            item { SectionLabel("Son öğünler", "Tümünü Gör", onNutrition) }
+            items(summary.logs.take(3)) { MealRow(it.foodName, it.mealType.label, it.calories, onNutrition) }
         }
     }
     if (calendarOpen) CalendarDialog(date, loggedDates, { calendarOpen = false }) { onSelect(it); calendarOpen = false }
@@ -247,6 +253,11 @@ private fun DistributionLine(label: String, grams: Int, ratio: Float, color: Col
 }
 
 private data class SaveRequest(val mealType: MealType?)
+private sealed interface DeleteRequest {
+    data class Log(val value: FoodLog) : DeleteRequest
+    data class Meal(val value: MealType) : DeleteRequest
+    data object Day : DeleteRequest
+}
 
 @Composable
 private fun NutritionScreen(
@@ -271,6 +282,7 @@ private fun NutritionScreen(
     var calendarOpen by remember { mutableStateOf(false) }
     var saveRequest by remember { mutableStateOf<SaveRequest?>(null) }
     var editingLog by remember { mutableStateOf<FoodLog?>(null) }
+    var deleteRequest by remember { mutableStateOf<DeleteRequest?>(null) }
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) { PageHeader("Beslenme", "Seçili günün kayıtları"); GradientBadge(Icons.Rounded.Restaurant) } }
         item { DateNavigator(date, onPrevious, onNext) { calendarOpen = true } }
@@ -282,14 +294,14 @@ private fun NutritionScreen(
                     Text(meal.label, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
                     Row {
                         if (logs.isNotEmpty()) TextButton(onClick = { saveRequest = SaveRequest(meal) }) { Text("Öğünü Kaydet", color = CalolyLavender) }
-                        if (logs.isNotEmpty()) IconButton(onClick = { onDeleteMeal(meal) }) { Icon(Icons.Rounded.DeleteSweep, "Öğünü sil", tint = CalolyMuted) }
+                        if (logs.isNotEmpty()) IconButton(onClick = { deleteRequest = DeleteRequest.Meal(meal) }) { Icon(Icons.Rounded.DeleteSweep, "Öğünü sil", tint = CalolyMuted) }
                         TextButton(onClick = onAdd) { Text("+ Ekle", color = CalolyGreen) }
                     }
                 }
             }
             if (logs.isEmpty()) item { EmptyMealRow() }
             else items(logs, key = { it.id }) { log ->
-                EditableFoodLogRow(log, onEdit = { editingLog = log }, onDelete = { onDeleteLog(log) })
+                EditableFoodLogRow(log, onEdit = { editingLog = log }, onDelete = { deleteRequest = DeleteRequest.Log(log) })
             }
         }
         if (summary.logs.isNotEmpty()) item {
@@ -297,7 +309,7 @@ private fun NutritionScreen(
                 OutlinedButton(onClick = { saveRequest = SaveRequest(null) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(18.dp)) {
                     Icon(Icons.Rounded.BookmarkAdd, null); Spacer(Modifier.width(8.dp)); Text("Günü Kaydet")
                 }
-                OutlinedButton(onClick = onDeleteDay, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                OutlinedButton(onClick = { deleteRequest = DeleteRequest.Day }, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
                     Icon(Icons.Rounded.DeleteSweep, "Günü sil")
                 }
             }
@@ -324,6 +336,29 @@ private fun NutritionScreen(
             onSave = { mealType, amount -> onUpdateLog(log, mealType, amount); editingLog = null },
         )
     }
+    deleteRequest?.let { request ->
+        val (title, message) = when (request) {
+            is DeleteRequest.Log -> "Besini sil" to "${request.value.foodName} kaydını silmek istediğine emin misin?"
+            is DeleteRequest.Meal -> "Öğünü sil" to "${request.value.label} öğünündeki tüm kayıtları silmek istediğine emin misin?"
+            DeleteRequest.Day -> "Günü sil" to "Seçili gündeki tüm beslenme kayıtlarını silmek istediğine emin misin?"
+        }
+        AlertDialog(
+            onDismissRequest = { deleteRequest = null },
+            title = { Text(title) },
+            text = { Text("$message Bu işlemden sonra kısa süre içinde Geri Al seçeneğini kullanabilirsin.") },
+            dismissButton = { TextButton(onClick = { deleteRequest = null }) { Text("Vazgeç") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    when (request) {
+                        is DeleteRequest.Log -> onDeleteLog(request.value)
+                        is DeleteRequest.Meal -> onDeleteMeal(request.value)
+                        DeleteRequest.Day -> onDeleteDay()
+                    }
+                    deleteRequest = null
+                }) { Text("Sil", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
+            },
+        )
+    }
 }
 
 @Composable
@@ -332,7 +367,7 @@ private fun EditableFoodLogRow(log: FoodLog, onEdit: () -> Unit, onDelete: () ->
         confirmValueChange = { value ->
             if (value == SwipeToDismissBoxValue.EndToStart) {
                 onDelete()
-                true
+                false
             } else false
         },
     )
@@ -630,13 +665,13 @@ private fun ActivityScreen(summary: DailySummary, state: HealthUiState, user: Ca
 }
 
 @Composable
-private fun ProfileScreen(user: CalolyUser?, state: AuthActionState, onEdit: () -> Unit, onBody: () -> Unit, onSecurity: () -> Unit, onSharing: () -> Unit, onSignOut: () -> Unit) {
+private fun ProfileScreen(user: CalolyUser?, state: AuthActionState, onEdit: () -> Unit, onBody: () -> Unit, onSecurity: () -> Unit, onNotifications: () -> Unit, onSharing: () -> Unit, onSignOut: () -> Unit) {
     val bmi = calculateBmi(user?.heightCm, user?.weightKg)
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { PageHeader("Profil", "Hesap ve paylaşım ayarları") }
         item { AppCard { Row(verticalAlignment = Alignment.CenterVertically) { Surface(shape = CircleShape, color = CalolyPurple) { Box(Modifier.size(70.dp), contentAlignment = Alignment.Center) { Text((user?.displayName ?: user?.username ?: "C").take(1).uppercase(), fontSize = 28.sp, fontWeight = FontWeight.Black) } }; Spacer(Modifier.width(15.dp)); Column { Text(user?.displayName ?: "Caloly kullanıcısı", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold); Text(user?.email.orEmpty(), color = CalolyMuted); user?.username?.let { Text("@$it", color = CalolyLavender) } } } } }
         item { AppCard { Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) { Column { Text("Vücut Kitle İndeksi", color = CalolyMuted); Text(bmi?.toString() ?: "Bilgi girilmedi", fontSize = 25.sp, fontWeight = FontWeight.Black, color = CalolyLavender) }; TextButton(onClick = onBody) { Text(if (bmi == null) "Bilgi Ekle" else "Güncelle") } } } }
-        item { SettingsGroup("Hesap", listOf(SettingItem("Profil bilgilerini düzenle", Icons.Rounded.Edit, onEdit), SettingItem("Vücut bilgileri ve VKİ", Icons.Rounded.MonitorHeart, onBody), SettingItem("Şifre ve güvenlik", Icons.Rounded.Lock, onSecurity))) }
+        item { SettingsGroup("Hesap", listOf(SettingItem("Profil bilgilerini düzenle", Icons.Rounded.Edit, onEdit), SettingItem("Vücut bilgileri ve VKİ", Icons.Rounded.MonitorHeart, onBody), SettingItem("Şifre ve güvenlik", Icons.Rounded.Lock, onSecurity), SettingItem("Bildirim ayarları", Icons.Rounded.Notifications, onNotifications))) }
         item { SettingsGroup("Paylaşım", listOf(SettingItem("Hedef arkadaşı paylaşım izinleri", Icons.Rounded.Favorite, onSharing), SettingItem("Aktivite görünürlüğü", Icons.Rounded.Visibility, onSharing), SettingItem("Beslenme detayları", Icons.Rounded.Restaurant, onSharing))) }
         state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
         item { OutlinedButton(onClick = onSignOut, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(18.dp)) { Icon(Icons.Rounded.Logout, null); Text(" Çıkış Yap") } }
@@ -654,6 +689,6 @@ private data class SettingItem(val label: String, val icon: ImageVector, val onC
 @Composable private fun GradientBadge(icon: ImageVector) = Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(CalolyPurple, CalolyPink))), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Color.White) }
 @Composable private fun SectionLabel(title: String, action: String, onClick: () -> Unit = {}) = Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) { Text(title, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold); if (action.isNotBlank()) TextButton(onClick = onClick) { Text(action, color = CalolyLavender) } }
 @Composable private fun StatLine(label: String, value: String, color: Color) = Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(8.dp).clip(CircleShape).background(color)); Spacer(Modifier.width(9.dp)); Column { Text(label, color = CalolyMuted, fontSize = 12.sp); Text(value, fontWeight = FontWeight.Bold) } }
-@Composable private fun MealRow(name: String, meal: String, calories: Int) = Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = CalolySurface)) { Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Surface(shape = RoundedCornerShape(14.dp), color = CalolyLavenderLight) { Icon(Icons.Rounded.Restaurant, null, tint = CalolyLavender, modifier = Modifier.padding(12.dp)) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(name, fontWeight = FontWeight.Bold); Text(meal, color = CalolyMuted, fontSize = 12.sp) }; Text("$calories kcal", color = CalolyGreen, fontWeight = FontWeight.Bold) } }
+@Composable private fun MealRow(name: String, meal: String, calories: Int, onClick: () -> Unit) = Card(modifier = Modifier.clickable(onClick = onClick), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = CalolySurface)) { Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Surface(shape = RoundedCornerShape(14.dp), color = CalolyLavenderLight) { Icon(Icons.Rounded.Restaurant, null, tint = CalolyLavender, modifier = Modifier.padding(12.dp)) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(name, fontWeight = FontWeight.Bold); Text(meal, color = CalolyMuted, fontSize = 12.sp) }; Text("$calories kcal", color = CalolyGreen, fontWeight = FontWeight.Bold) } }
 @Composable private fun MetricTile(title: String, value: String, icon: ImageVector, color: Color, modifier: Modifier) = Card(modifier, shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = CalolySurface)) { Column(Modifier.padding(17.dp)) { Icon(icon, null, tint = color); Spacer(Modifier.height(10.dp)); Text(title, color = CalolyMuted, fontSize = 12.sp); Text(value, fontWeight = FontWeight.ExtraBold) } }
 @Composable private fun CompactMetric(title: String, value: String, unit: String, color: Color, modifier: Modifier) = Card(modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = CalolySurface)) { Column(Modifier.padding(horizontal = 8.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Box(Modifier.size(6.dp).clip(CircleShape).background(color)); Spacer(Modifier.height(6.dp)); Text(title, color = CalolyMuted, fontSize = 9.sp, maxLines = 1); Text(value, fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1); Text(unit, color = CalolyMuted, fontSize = 9.sp) } }

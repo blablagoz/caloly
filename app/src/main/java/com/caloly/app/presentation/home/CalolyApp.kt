@@ -30,6 +30,7 @@ import com.caloly.app.presentation.auth.OnboardingScreen
 import com.caloly.app.presentation.auth.OtpScreen
 import com.caloly.app.presentation.auth.RegisterScreen
 import com.caloly.app.presentation.navigation.Routes
+import com.caloly.app.presentation.profile.NotificationSettingsScreen
 import com.caloly.app.presentation.social.SharingSettingsScreen
 import com.caloly.app.presentation.social.SocialScreen
 import com.caloly.app.presentation.theme.CalolyGreen
@@ -42,6 +43,10 @@ fun CalolyApp() {
     val actionState by authViewModel.action.collectAsStateWithLifecycle()
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentEntry?.destination?.route
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { }
 
     LaunchedEffect(authState, currentRoute) {
         when (val state = authState) {
@@ -58,6 +63,15 @@ fun CalolyApp() {
                     currentRoute?.startsWith(Routes.OTP) == true
                 if (authRoute || (destination == Routes.ONBOARDING && currentRoute != Routes.ONBOARDING)) {
                     navController.navigate(destination) { popUpTo(0) }
+                }
+                if (
+                    currentRoute == Routes.HOME &&
+                    android.os.Build.VERSION.SDK_INT >= 33 &&
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                    !com.caloly.app.notifications.NotificationPreferences.permissionWasAsked(context)
+                ) {
+                    com.caloly.app.notifications.NotificationPreferences.markPermissionAsked(context)
+                    notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
         }
@@ -210,6 +224,7 @@ fun CalolyApp() {
                 onEditAccount = { navController.navigate(Routes.ACCOUNT) },
                 onEditBody = { navController.navigate(Routes.ONBOARDING) },
                 onSecurity = { navController.navigate(Routes.CHANGE_PASSWORD) },
+                onNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
                 onSharingSettings = { navController.navigate(Routes.SHARING_SETTINGS) },
                 onSignOut = {
                     authViewModel.signOut()
@@ -230,5 +245,6 @@ fun CalolyApp() {
         }
         composable(Routes.SOCIAL) { SocialScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SHARING_SETTINGS) { SharingSettingsScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.NOTIFICATION_SETTINGS) { NotificationSettingsScreen(onBack = { navController.popBackStack() }) }
     }
 }

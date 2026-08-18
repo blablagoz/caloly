@@ -204,22 +204,19 @@ fun AddFoodScreen(
                 }
 
                 item {
-                    Text(
-                        when {
-                            state.showingRemoteResults -> "İnternet sonuçları"
-                            state.query.isBlank() -> "Favoriler, son kullanılanlar ve hızlı ekle"
-                            else -> "Caloly sonuçları"
-                        },
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 18.sp,
-                    )
-                    Text(
-                        "Cihaz diline göre sıralanır · ${state.catalogSize} çevrimdışı ürün",
-                        color = CalolyMuted,
-                        fontSize = 11.sp,
-                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column {
+                            Text(
+                                if (state.query.isBlank()) "Favoriler, son kullanılanlar ve hızlı ekle" else "Caloly ve çevrimdışı eşleşmeler",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 18.sp,
+                            )
+                            Text("${state.catalogSize} çevrimdışı ürün · yalnızca ilgili eşleşmeler", color = CalolyMuted, fontSize = 11.sp)
+                        }
+                        if (state.isLocalLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CalolyLavender)
+                    }
                 }
-                items(state.results, key = { it.id }) { food ->
+                items(state.localResults, key = { "local:${it.id}" }) { food ->
                     FoodResultCard(
                         food = food,
                         isFavorite = food.id in state.favoriteIds,
@@ -227,16 +224,27 @@ fun AddFoodScreen(
                         onClick = { viewModel.onFoodSelected(food) },
                     )
                 }
-                if (state.showingRemoteResults) {
+                if (state.hasSearchedOnline && state.onlineResults.isNotEmpty()) {
+                    item {
+                        Text("İnternet eşleşmeleri", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    }
+                    items(state.onlineResults, key = { "online:${it.id}" }) { food ->
+                        FoodResultCard(
+                            food = food,
+                            isFavorite = food.id in state.favoriteIds,
+                            onFavorite = { viewModel.toggleFavorite(food) },
+                            onClick = { viewModel.onFoodSelected(food) },
+                        )
+                    }
                     item {
                         Text(
-                            "Paketli ürün verileri: Open Food Facts (ODbL). Etiket değerlerini kaydetmeden önce kontrol et.",
+                            "Paketli ürünler Open Food Facts'ten; kafe menülerindeki resmî olmayan değerler tahmini olarak etiketlenir. Kaydetmeden önce porsiyonu kontrol et.",
                             color = CalolyMuted,
                             fontSize = 10.sp,
                         )
                     }
                 }
-                if (state.results.isEmpty() && state.errorMessage == null) {
+                if (state.allResultsEmpty && !state.isLocalLoading && state.errorMessage == null) {
                     item {
                         Text(
                             "Yerel katalogda bulunamadı. İnternette Ara veya Barkod Tara ile paketli ürün veritabanını kullanabilirsin.",
@@ -425,6 +433,7 @@ private fun ManualFoodDialog(
 
 private fun availableUnits(food: Food): List<FoodUnit> = when (food.defaultUnit) {
     FoodUnit.MILLILITER -> listOf(FoodUnit.MILLILITER)
+    FoodUnit.SERVING -> listOf(FoodUnit.SERVING)
     FoodUnit.PIECE -> listOf(FoodUnit.PIECE, FoodUnit.GRAM)
     FoodUnit.SLICE -> listOf(FoodUnit.SLICE, FoodUnit.GRAM)
     FoodUnit.PACKAGE -> listOf(FoodUnit.PACKAGE, FoodUnit.GRAM)

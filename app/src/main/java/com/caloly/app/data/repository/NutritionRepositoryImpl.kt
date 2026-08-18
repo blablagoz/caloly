@@ -51,6 +51,17 @@ class NutritionRepositoryImpl @Inject constructor(
         val carbs: Double = 0.0,
         val fat: Double = 0.0,
     )
+    private data class CafeMenuCatalog(val foods: List<CafeMenuFoodDto> = emptyList())
+    private data class CafeMenuFoodDto(
+        val id: String,
+        val brand: String,
+        val name: String,
+        val aliases: List<String> = emptyList(),
+        val calories: Double,
+        val protein: Double = 0.0,
+        val carbs: Double = 0.0,
+        val fat: Double = 0.0,
+    )
 
     private val savedFoodPreferences by lazy { context.getSharedPreferences("saved_foods", Context.MODE_PRIVATE) }
     private val savedFoods: MutableMap<String, SavedFoodRecord> by lazy {
@@ -73,6 +84,7 @@ class NutritionRepositoryImpl @Inject constructor(
         runCatching {
             context.assets.open("turkish_generic_foods_2026.json").bufferedReader().use { reader ->
                 gson.fromJson(reader, GenericFoodCatalog::class.java).foods.map { item ->
+                    val produceWeight = produceUnitWeight(item.name)
                     Food(
                         id = item.id,
                         name = item.name,
@@ -80,6 +92,8 @@ class NutritionRepositoryImpl @Inject constructor(
                         proteinPer100g = item.protein,
                         carbsPer100g = item.carbs,
                         fatPer100g = item.fat,
+                        defaultUnit = if (produceWeight != null) FoodUnit.PIECE else FoodUnit.GRAM,
+                        gramsPerUnit = produceWeight ?: 1.0,
                         source = com.caloly.app.domain.model.FoodSource.OPEN_NUTRITION,
                         searchAliases = item.aliases,
                     )
@@ -88,11 +102,41 @@ class NutritionRepositoryImpl @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
-    private val localFoods: List<Food> by lazy {
+    private val localFoodsDelegate = lazy {
         (foodCatalog + bundledTurkeyFoods + turkishGenericFoods).distinctBy { it.barcode ?: it.id }
     }
+    private val localFoods: List<Food> by localFoodsDelegate
 
-    override val localCatalogSize: Int get() = localFoods.size + savedFoods.values.count { it.food.source == com.caloly.app.domain.model.FoodSource.USER }
+    /**
+     * Curated brand-menu matches are kept outside [localFoods]. They participate only when
+     * the user explicitly presses “İnternette Ara”, so the normal offline search stays small
+     * and generic. Values without an official nutrition declaration are labelled as estimates.
+     */
+    private val cafeMenuFoods: List<Food> by lazy {
+        runCatching {
+            context.assets.open("cafe_menu_tr.json").bufferedReader().use { reader ->
+                gson.fromJson(reader, CafeMenuCatalog::class.java).foods.map { item ->
+                    Food(
+                        id = "cafe:${item.id}",
+                        name = item.name,
+                        brand = item.brand,
+                        caloriesPer100g = item.calories,
+                        proteinPer100g = item.protein,
+                        carbsPer100g = item.carbs,
+                        fatPer100g = item.fat,
+                        defaultUnit = FoodUnit.SERVING,
+                        gramsPerUnit = 100.0,
+                        source = com.caloly.app.domain.model.FoodSource.CAFE_MENU,
+                        searchAliases = item.aliases,
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    override val localCatalogSize: Int
+        get() = (if (localFoodsDelegate.isInitialized()) localFoods.size else 0) +
+            savedFoods.values.count { it.food.source == com.caloly.app.domain.model.FoodSource.USER }
     override val favoriteFoodIds: Set<String> get() = synchronized(savedFoods) { savedFoods.values.filter { it.favorite }.mapTo(mutableSetOf()) { it.food.id } }
 
     override fun observeDailySummary(dateKey: String): Flow<DailySummary> =
@@ -128,16 +172,24 @@ class NutritionRepositoryImpl @Inject constructor(
     override suspend fun searchRemoteFoods(query: String): Result<List<Food>> = runCatching {
         require(query.trim().length >= 2) { "En az 2 karakter gir." }
         val locale = Locale.getDefault()
-        openFoodFactsApi.search(
+        val normalizedQuery = query.searchKey()
+        val openFoods = openFoodFactsApi.search(
             query = query.trim(),
             languageCode = locale.language.ifBlank { "tr" },
             countryCode = locale.country.lowercase(Locale.ROOT).ifBlank { if (locale.language == "tr") "tr" else "world" },
         )
             .products
             .mapNotNull { it.toDomainOrNull(locale.language) }
-            .distinctBy { it.barcode ?: "${it.name.searchKey()}:${it.brand?.searchKey()}" }
-            .sortedByDescending { it.searchScore(query.searchKey()) }
-            .take(40)
+            .mapNotNull { food -> food.searchScore(normalizedQuery).takeIf { it > 0 }?.let { it to food } }
+            .distinctBy { (_, food) -> food.barcode ?: "${food.name.searchKey()}:${food.brand?.searchKey()}" }
+        val cafeFoods = cafeMenuFoods.mapNotNull { food ->
+            food.searchScore(normalizedQuery).takeIf { it > 0 }?.let { it to food }
+        }
+        (cafeFoods + openFoods)
+            .sortedWith(compareByDescending<Pair<Int, Food>> { it.first }.thenBy { it.second.name })
+            .map { it.second }
+            .distinctBy { it.barcode ?: "${it.brand?.searchKey()}:${it.name.searchKey()}" }
+            .take(50)
     }
 
     override suspend fun findFoodByBarcode(barcode: String): Result<Food?> = runCatching {
@@ -410,7 +462,7 @@ class NutritionRepositoryImpl @Inject constructor(
             Food("cucumber", "Salatalık", caloriesPer100g = 15.0, proteinPer100g = 0.7, carbsPer100g = 3.6, fatPer100g = 0.1, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 150.0),
             Food("potato", "Patates", caloriesPer100g = 77.0, proteinPer100g = 2.0, carbsPer100g = 17.0, fatPer100g = 0.1, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 170.0),
             Food("orange", "Portakal", caloriesPer100g = 47.0, proteinPer100g = 0.9, carbsPer100g = 12.0, fatPer100g = 0.1, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 180.0),
-            Food("strawberry", "Çilek", caloriesPer100g = 32.0, proteinPer100g = 0.7, carbsPer100g = 7.7, fatPer100g = 0.3),
+            Food("strawberry", "Çilek", caloriesPer100g = 32.0, proteinPer100g = 0.7, carbsPer100g = 7.7, fatPer100g = 0.3, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 12.0),
             Food("almond", "Badem", caloriesPer100g = 579.0, proteinPer100g = 21.0, carbsPer100g = 22.0, fatPer100g = 50.0),
             Food("walnut", "Ceviz", caloriesPer100g = 654.0, proteinPer100g = 15.0, carbsPer100g = 14.0, fatPer100g = 65.0),
             Food("hazelnut", "Fındık", caloriesPer100g = 628.0, proteinPer100g = 15.0, carbsPer100g = 17.0, fatPer100g = 61.0),
@@ -424,6 +476,41 @@ internal fun String.searchKey(): String = Normalizer.normalize(lowercase(Locale.
     .replace(Regex("\\p{M}+"), "")
     .replace('ı', 'i')
 
+private val producePieceWeights = linkedMapOf(
+    "hindistan cevizi" to 400.0, "çarkıfelek" to 18.0, "ejder meyvesi" to 300.0,
+    "dolmalık biber" to 140.0, "kapya biber" to 120.0, "sivri biber" to 25.0,
+    "brüksel lahanası" to 20.0, "tatlı patates" to 180.0, "yer elması" to 80.0,
+    "yeşil soğan" to 15.0, "taze soğan" to 15.0, "kuru soğan" to 110.0,
+    "avokado" to 150.0, "greyfurt" to 230.0, "portakal" to 180.0, "mandalina" to 100.0,
+    "limon" to 80.0, "misket limonu" to 55.0, "elma" to 180.0, "armut" to 180.0,
+    "ayva" to 250.0, "muz" to 120.0, "şeftali" to 150.0, "nektarin" to 140.0,
+    "kayısı" to 35.0, "erik" to 45.0, "kiraz" to 8.0, "vişne" to 7.0,
+    "çilek" to 12.0, "incir" to 50.0, "hurma" to 24.0, "kivi" to 75.0,
+    "nar" to 280.0, "mango" to 250.0, "papaya" to 300.0, "guava" to 90.0,
+    "üzüm" to 5.0, "yaban mersini" to 2.0, "böğürtlen" to 5.0, "ahududu" to 4.0,
+    "karpuz" to 4000.0, "kavun" to 1500.0, "domates" to 120.0, "salatalık" to 150.0,
+    "patlıcan" to 250.0, "kabak" to 200.0, "biber" to 80.0, "patates" to 170.0,
+    "havuç" to 70.0, "pancar" to 100.0, "turp" to 35.0, "şalgam" to 120.0,
+    "soğan" to 110.0, "sarımsak" to 4.0, "pırasa" to 180.0, "kereviz" to 450.0,
+    "brokoli" to 500.0, "karnabahar" to 600.0, "enginar" to 300.0, "bamya" to 12.0,
+    "mantar" to 18.0, "bezelye" to 0.5, "fasulye" to 6.0, "kuşkonmaz" to 16.0,
+    "mısır" to 120.0, "marul" to 300.0, "lahana" to 900.0, "pazı" to 20.0,
+    "ıspanak" to 10.0, "roka" to 3.0, "maydanoz" to 2.0, "dereotu" to 1.0,
+)
+
+private val preparedProduceExclusions = listOf(
+    "suyu", "icecek", "recel", "marmelat", "kek", "pasta", "dondurma", "yogurt", "sos",
+    "corba", "tursu", "konserve", "kurutulmus", "cips", "salata", "sandvic", "pure", "yemegi",
+)
+
+private fun produceUnitWeight(name: String): Double? {
+    val key = name.searchKey()
+    if (preparedProduceExclusions.any(key::contains)) return null
+    return producePieceWeights.entries.firstOrNull { (produce, _) ->
+        Regex("(^|[^a-z0-9])${Regex.escape(produce.searchKey())}([^a-z0-9]|$)").containsMatchIn(key)
+    }?.value
+}
+
 private val broadFoodAliases = mapOf(
     "kahve" to listOf("kahve", "coffee", "espresso", "latte", "cappuccino", "americano", "mocha", "nescafe", "starbucks"),
     "ekmek" to listOf("ekmek", "bread", "tost", "baget", "bazlama", "pide", "lavaş", "simit"),
@@ -433,7 +520,7 @@ private val broadFoodAliases = mapOf(
     "sut" to listOf("süt", "milk", "laktozsuz", "badem içeceği", "yulaf içeceği"),
 )
 
-private fun Food.searchScore(normalizedQuery: String): Int {
+internal fun Food.searchScore(normalizedQuery: String): Int {
     if (normalizedQuery.isBlank()) return 1
     val nameKey = name.searchKey()
     val brandKey = brand?.searchKey().orEmpty()
@@ -444,13 +531,14 @@ private fun Food.searchScore(normalizedQuery: String): Int {
         nameKey.startsWith("$normalizedQuery ") -> 850
         nameKey.split(' ').any { it == normalizedQuery } -> 760
         nameKey.contains(normalizedQuery) -> 650
-        brandKey == normalizedQuery -> 620
-        brandKey.contains(normalizedQuery) -> 520
+        brandKey == normalizedQuery -> 900
+        brandKey.startsWith(normalizedQuery) -> 820
+        brandKey.contains(normalizedQuery) -> 720
         normalizedQuery.split(' ').all { it.length < 2 || haystack.contains(it) } -> 400
         else -> 0
     }
     val aliases = broadFoodAliases[normalizedQuery]
     if (aliases != null && aliases.any { haystack.contains(it.searchKey()) }) score = maxOf(score, 560)
-    if (source == com.caloly.app.domain.model.FoodSource.CALOLY) score += 30
+    if (score > 0 && source == com.caloly.app.domain.model.FoodSource.CALOLY) score += 30
     return score
 }
