@@ -170,6 +170,7 @@ fun CalolyApp() {
             val loggedDates by viewModel.loggedDates.collectAsStateWithLifecycle()
             val templates by viewModel.templates.collectAsStateWithLifecycle()
             val templateAction by viewModel.templateAction.collectAsStateWithLifecycle()
+            val logAction by viewModel.logAction.collectAsStateWithLifecycle()
             val lifecycleOwner = LocalLifecycleOwner.current
             val permissionLauncher = rememberLauncherForActivityResult(
                 PermissionController.createRequestPermissionResultContract(),
@@ -187,6 +188,7 @@ fun CalolyApp() {
                 loggedDates = loggedDates,
                 templates = templates,
                 templateAction = templateAction,
+                logAction = logAction,
                 healthState = healthState,
                 user = (authState as? AuthState.SignedIn)?.user,
                 authAction = actionState,
@@ -198,6 +200,11 @@ fun CalolyApp() {
                 onSaveDay = viewModel::saveDayTemplate,
                 onApplyTemplate = viewModel::applyTemplate,
                 onDeleteTemplate = viewModel::deleteTemplate,
+                onDeleteLog = viewModel::deleteLog,
+                onDeleteMeal = viewModel::deleteMeal,
+                onDeleteDay = viewModel::deleteDay,
+                onUndoDelete = viewModel::undoLastDeletion,
+                onUpdateLog = viewModel::updateLog,
                 onConnectHealth = { permissionLauncher.launch(viewModel.requiredHealthPermissions) },
                 onRefreshHealth = viewModel::refreshHealth,
                 onEditAccount = { navController.navigate(Routes.ACCOUNT) },

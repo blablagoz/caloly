@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.caloly.app.domain.auth.AuthRepository
 import com.caloly.app.domain.auth.AuthState
+import com.caloly.app.domain.auth.isValidUsername
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -53,7 +54,7 @@ class AuthViewModel @Inject constructor(
         require(email.contains('@')) { "Geçerli bir e-posta adresi girin." }
         validatePassword(password)
         require(displayName.isNotBlank()) { "Adınızı girin." }
-        require(username.matches(Regex("[a-zA-Z0-9._]{3,24}"))) { "Kullanıcı adı 3-24 karakter; harf, sayı, nokta ve alt çizgi içerebilir." }
+        require(isValidUsername(username)) { "Kullanıcı adı 3-24 karakter; Türkçe harf, sayı, nokta ve alt çizgi içerebilir." }
         repository.signUp(email, password, displayName, username)
         _action.value = AuthActionState(
             message = "Hesap oluşturuldu. E-postadaki doğrulama bağlantısına dokunun.",
@@ -86,7 +87,7 @@ class AuthViewModel @Inject constructor(
 
     fun updateProfile(displayName: String, username: String, onDone: () -> Unit) = runAction {
         require(displayName.isNotBlank()) { "Ad alanı boş bırakılamaz." }
-        require(username.matches(Regex("[a-zA-Z0-9._]{3,24}"))) { "Geçerli bir kullanıcı adı girin." }
+        require(isValidUsername(username)) { "Kullanıcı adı 3-24 karakter; Türkçe harf, sayı, nokta ve alt çizgi içerebilir." }
         repository.updateProfile(displayName, username)
         _action.value = AuthActionState(message = "Profil güncellendi.")
         onDone()

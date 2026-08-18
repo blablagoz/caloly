@@ -4,9 +4,19 @@ import com.caloly.app.domain.model.Food
 import com.caloly.app.domain.model.FoodSource
 import com.caloly.app.domain.model.FoodUnit
 
-fun OffProduct.toDomainOrNull(): Food? {
-    val displayName = productNameTr?.takeIf { it.isNotBlank() }
+fun OffProduct.toDomainOrNull(preferredLanguage: String = "tr"): Food? {
+    val localizedName = when (preferredLanguage) {
+        "tr" -> productNameTr
+        "en" -> productNameEn
+        "fr" -> productNameFr
+        "de" -> productNameDe
+        else -> null
+    }
+    val displayName = localizedName?.takeIf { it.isNotBlank() }
+        ?: productNameTr?.takeIf { preferredLanguage == "tr" && it.isNotBlank() }
         ?: productName?.takeIf { it.isNotBlank() }
+        ?: productNameEn?.takeIf { it.isNotBlank() }
+        ?: productNameTr?.takeIf { it.isNotBlank() }
         ?: return null
     val nutrients = nutriments ?: return null
     val calories = nutrients.calories100g

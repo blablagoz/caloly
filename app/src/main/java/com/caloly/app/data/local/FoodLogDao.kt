@@ -18,6 +18,21 @@ interface FoodLogDao {
     @Query("DELETE FROM food_logs WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM food_logs WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
+    @Query("UPDATE food_logs SET mealType = :mealType, amount = :amount, grams = :grams, calories = :calories, proteinGrams = :proteinGrams, carbsGrams = :carbsGrams, fatGrams = :fatGrams WHERE id = :id")
+    suspend fun updateLog(
+        id: String,
+        mealType: String,
+        amount: Double,
+        grams: Double,
+        calories: Int,
+        proteinGrams: Double,
+        carbsGrams: Double,
+        fatGrams: Double,
+    )
+
     @Query("SELECT DISTINCT dateKey FROM food_logs ORDER BY dateKey")
     fun observeLoggedDates(): Flow<List<String>>
 

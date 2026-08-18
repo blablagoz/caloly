@@ -2,6 +2,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const headers = { "Content-Type": "application/json" };
 
+const normalizeUsername = (value: string) =>
+  value.trim().normalize("NFC").toLocaleLowerCase("tr-TR");
+
 Deno.serve(async (request) => {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
   try {
@@ -14,7 +17,7 @@ Deno.serve(async (request) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-    const { data } = await admin.from("login_identifiers").select("login_email").eq("username", identifier.trim().toLowerCase()).maybeSingle();
+    const { data } = await admin.from("login_identifiers").select("login_email").eq("username_key", normalizeUsername(identifier)).maybeSingle();
     if (!data?.login_email) return new Response(JSON.stringify({ error: "invalid_credentials" }), { status: 401, headers });
 
     // Validate the password with GoTrue before returning the private login address.

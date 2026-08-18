@@ -1,11 +1,13 @@
 package com.caloly.app.data.repository
 
+import android.content.Context
 import com.caloly.app.data.local.FoodLogDao
 import com.caloly.app.data.local.FoodLogEntity
 import com.caloly.app.data.local.NutritionTemplateEntity
 import com.caloly.app.data.local.NutritionTemplateItemEntity
 import com.caloly.app.data.local.NutritionTemplateWithItems
 import com.caloly.app.data.remote.OpenFoodFactsApi
+import com.caloly.app.data.remote.OffSearchResponse
 import com.caloly.app.data.remote.toDomainOrNull
 import com.caloly.app.domain.model.DailySummary
 import com.caloly.app.domain.model.Food
@@ -23,11 +25,75 @@ import javax.inject.Inject
 import kotlin.math.roundToInt
 import java.text.Normalizer
 import java.util.Locale
+import com.google.gson.Gson
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 class NutritionRepositoryImpl @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val gson: Gson,
     private val dao: FoodLogDao,
     private val openFoodFactsApi: OpenFoodFactsApi,
 ) : NutritionRepository {
+
+    private data class SavedFoodRecord(
+        val food: Food,
+        val favorite: Boolean = false,
+        val lastUsedAt: Long = 0,
+    )
+
+    private data class GenericFoodCatalog(val foods: List<GenericFoodDto> = emptyList())
+    private data class GenericFoodDto(
+        val id: String,
+        val name: String,
+        val aliases: List<String> = emptyList(),
+        val calories: Double,
+        val protein: Double = 0.0,
+        val carbs: Double = 0.0,
+        val fat: Double = 0.0,
+    )
+
+    private val savedFoodPreferences by lazy { context.getSharedPreferences("saved_foods", Context.MODE_PRIVATE) }
+    private val savedFoods: MutableMap<String, SavedFoodRecord> by lazy {
+        runCatching {
+            gson.fromJson(savedFoodPreferences.getString("records", "[]"), Array<SavedFoodRecord>::class.java)
+                .associateByTo(linkedMapOf()) { it.food.id }
+        }.getOrDefault(linkedMapOf())
+    }
+
+    private val bundledTurkeyFoods: List<Food> by lazy {
+        runCatching {
+            context.assets.open("turkey_products_2024.json").bufferedReader().use { reader ->
+                gson.fromJson(reader, OffSearchResponse::class.java).products
+                    .mapNotNull { it.toDomainOrNull("tr") }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private val turkishGenericFoods: List<Food> by lazy {
+        runCatching {
+            context.assets.open("turkish_generic_foods_2026.json").bufferedReader().use { reader ->
+                gson.fromJson(reader, GenericFoodCatalog::class.java).foods.map { item ->
+                    Food(
+                        id = item.id,
+                        name = item.name,
+                        caloriesPer100g = item.calories,
+                        proteinPer100g = item.protein,
+                        carbsPer100g = item.carbs,
+                        fatPer100g = item.fat,
+                        source = com.caloly.app.domain.model.FoodSource.OPEN_NUTRITION,
+                        searchAliases = item.aliases,
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private val localFoods: List<Food> by lazy {
+        (foodCatalog + bundledTurkeyFoods + turkishGenericFoods).distinctBy { it.barcode ?: it.id }
+    }
+
+    override val localCatalogSize: Int get() = localFoods.size + savedFoods.values.count { it.food.source == com.caloly.app.domain.model.FoodSource.USER }
+    override val favoriteFoodIds: Set<String> get() = synchronized(savedFoods) { savedFoods.values.filter { it.favorite }.mapTo(mutableSetOf()) { it.food.id } }
 
     override fun observeDailySummary(dateKey: String): Flow<DailySummary> =
         dao.observeByDate(dateKey).map { entities ->
@@ -44,27 +110,58 @@ class NutritionRepositoryImpl @Inject constructor(
         }
 
     override fun searchLocalFoods(query: String): List<Food> {
-        if (query.isBlank()) return foodCatalog.take(12)
+        if (query.isBlank()) {
+            val saved = synchronized(savedFoods) {
+                savedFoods.values.sortedWith(compareByDescending<SavedFoodRecord> { it.favorite }.thenByDescending { it.lastUsedAt }).map { it.food }
+            }
+            return (saved + foodCatalog).distinctBy { it.id }.take(20)
+        }
         val normalized = query.searchKey()
-        return foodCatalog.filter { food ->
-            food.name.searchKey().contains(normalized) ||
-                food.brand?.searchKey()?.contains(normalized) == true
-        }.take(25)
+        val candidates = synchronized(savedFoods) { savedFoods.values.map { it.food } } + localFoods
+        return candidates.distinctBy { it.barcode ?: it.id }.mapNotNull { food ->
+            food.searchScore(normalized).takeIf { it > 0 }?.let { it to food }
+        }.sortedWith(compareByDescending<Pair<Int, Food>> { it.first }.thenBy { it.second.name })
+            .map { it.second }
+            .take(40)
     }
 
     override suspend fun searchRemoteFoods(query: String): Result<List<Food>> = runCatching {
         require(query.trim().length >= 2) { "En az 2 karakter gir." }
-        openFoodFactsApi.search(query.trim())
+        val locale = Locale.getDefault()
+        openFoodFactsApi.search(
+            query = query.trim(),
+            languageCode = locale.language.ifBlank { "tr" },
+            countryCode = locale.country.lowercase(Locale.ROOT).ifBlank { if (locale.language == "tr") "tr" else "world" },
+        )
             .products
-            .mapNotNull { it.toDomainOrNull() }
-            .distinctBy { it.barcode ?: it.id }
-            .take(20)
+            .mapNotNull { it.toDomainOrNull(locale.language) }
+            .distinctBy { it.barcode ?: "${it.name.searchKey()}:${it.brand?.searchKey()}" }
+            .sortedByDescending { it.searchScore(query.searchKey()) }
+            .take(40)
     }
 
     override suspend fun findFoodByBarcode(barcode: String): Result<Food?> = runCatching {
         val clean = barcode.filter(Char::isDigit)
         require(clean.length in 8..14) { "Geçersiz barkod." }
-        openFoodFactsApi.productByBarcode(clean).product?.toDomainOrNull()
+        synchronized(savedFoods) { savedFoods.values.firstOrNull { it.food.barcode == clean }?.food }
+            ?: openFoodFactsApi.productByBarcode(clean).product?.toDomainOrNull(Locale.getDefault().language)
+    }
+
+    override fun saveCustomFood(food: Food) {
+        require(food.source == com.caloly.app.domain.model.FoodSource.USER)
+        synchronized(savedFoods) {
+            val previous = savedFoods[food.id]
+            savedFoods[food.id] = SavedFoodRecord(food, previous?.favorite ?: false, System.currentTimeMillis())
+            persistSavedFoods()
+        }
+    }
+
+    override fun toggleFavorite(food: Food): Boolean = synchronized(savedFoods) {
+        val previous = savedFoods[food.id]
+        val favorite = previous?.favorite != true
+        savedFoods[food.id] = SavedFoodRecord(food, favorite, previous?.lastUsedAt ?: 0)
+        persistSavedFoods()
+        favorite
     }
 
     override suspend fun addFood(
@@ -97,9 +194,33 @@ class NutritionRepositoryImpl @Inject constructor(
                 createdAt = System.currentTimeMillis(),
             )
         )
+        rememberFood(food)
     }
 
     override suspend fun deleteFoodLog(id: String) = dao.deleteById(id)
+
+    override suspend fun deleteFoodLogs(ids: List<String>) {
+        if (ids.isNotEmpty()) dao.deleteByIds(ids)
+    }
+
+    override suspend fun restoreFoodLogs(dateKey: String, logs: List<FoodLog>) {
+        dao.insertLogs(logs.mapIndexed { index, log -> log.toEntity(dateKey, log.id, System.currentTimeMillis() + index) })
+    }
+
+    override suspend fun updateFoodLog(log: FoodLog, mealType: MealType, amount: Double) {
+        require(amount > 0) { "Miktar sıfırdan büyük olmalı." }
+        val factor = amount / log.amount.coerceAtLeast(0.0001)
+        dao.updateLog(
+            id = log.id,
+            mealType = mealType.name,
+            amount = amount,
+            grams = log.grams * factor,
+            calories = (log.calories * factor).roundToInt(),
+            proteinGrams = log.proteinGrams * factor,
+            carbsGrams = log.carbsGrams * factor,
+            fatGrams = log.fatGrams * factor,
+        )
+    }
 
     override fun observeLoggedDates(): Flow<Set<String>> = dao.observeLoggedDates().map { it.toSet() }
 
@@ -156,6 +277,16 @@ class NutritionRepositoryImpl @Inject constructor(
 
     override suspend fun deleteTemplate(id: String) = dao.deleteTemplate(id)
 
+    private fun rememberFood(food: Food) = synchronized(savedFoods) {
+        val previous = savedFoods[food.id]
+        savedFoods[food.id] = SavedFoodRecord(food, previous?.favorite ?: false, System.currentTimeMillis())
+        persistSavedFoods()
+    }
+
+    private fun persistSavedFoods() {
+        savedFoodPreferences.edit().putString("records", gson.toJson(savedFoods.values.toList())).apply()
+    }
+
     private suspend fun persistTemplate(template: NutritionTemplate) {
         dao.replaceTemplate(
             NutritionTemplateEntity(template.id, template.name, template.kind.name, template.sourceOwnerName, template.createdAt),
@@ -191,6 +322,22 @@ class NutritionRepositoryImpl @Inject constructor(
         carbsGrams = carbsGrams,
         fatGrams = fatGrams,
         createdAt = createdAt,
+    )
+
+    private fun FoodLog.toEntity(dateKey: String, entityId: String, timestamp: Long) = FoodLogEntity(
+        id = entityId,
+        dateKey = dateKey,
+        mealType = mealType.name,
+        foodName = foodName,
+        brand = brand,
+        amount = amount,
+        unit = unit.name,
+        grams = grams,
+        calories = calories,
+        proteinGrams = proteinGrams,
+        carbsGrams = carbsGrams,
+        fatGrams = fatGrams,
+        createdAt = timestamp,
     )
 
     private fun FoodLog.toTemplateItem() = NutritionTemplateItem(
@@ -273,6 +420,37 @@ class NutritionRepositoryImpl @Inject constructor(
     }
 }
 
-private fun String.searchKey(): String = Normalizer.normalize(lowercase(Locale("tr", "TR")), Normalizer.Form.NFD)
+internal fun String.searchKey(): String = Normalizer.normalize(lowercase(Locale.forLanguageTag("tr-TR")), Normalizer.Form.NFD)
     .replace(Regex("\\p{M}+"), "")
     .replace('ı', 'i')
+
+private val broadFoodAliases = mapOf(
+    "kahve" to listOf("kahve", "coffee", "espresso", "latte", "cappuccino", "americano", "mocha", "nescafe", "starbucks"),
+    "ekmek" to listOf("ekmek", "bread", "tost", "baget", "bazlama", "pide", "lavaş", "simit"),
+    "cikolata" to listOf("çikolata", "chocolate", "gofret", "kakao", "cocoa"),
+    "su" to listOf("su", "water", "maden suyu", "soda"),
+    "peynir" to listOf("peynir", "cheese", "kaşar", "beyaz peynir", "labne"),
+    "sut" to listOf("süt", "milk", "laktozsuz", "badem içeceği", "yulaf içeceği"),
+)
+
+private fun Food.searchScore(normalizedQuery: String): Int {
+    if (normalizedQuery.isBlank()) return 1
+    val nameKey = name.searchKey()
+    val brandKey = brand?.searchKey().orEmpty()
+    val aliasKey = searchAliases.joinToString(" ").searchKey()
+    val haystack = "$nameKey $brandKey $aliasKey"
+    var score = when {
+        nameKey == normalizedQuery -> 1000
+        nameKey.startsWith("$normalizedQuery ") -> 850
+        nameKey.split(' ').any { it == normalizedQuery } -> 760
+        nameKey.contains(normalizedQuery) -> 650
+        brandKey == normalizedQuery -> 620
+        brandKey.contains(normalizedQuery) -> 520
+        normalizedQuery.split(' ').all { it.length < 2 || haystack.contains(it) } -> 400
+        else -> 0
+    }
+    val aliases = broadFoodAliases[normalizedQuery]
+    if (aliases != null && aliases.any { haystack.contains(it.searchKey()) }) score = maxOf(score, 560)
+    if (source == com.caloly.app.domain.model.FoodSource.CALOLY) score += 30
+    return score
+}

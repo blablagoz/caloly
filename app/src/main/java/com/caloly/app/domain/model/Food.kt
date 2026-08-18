@@ -13,11 +13,13 @@ data class Food(
     val barcode: String? = null,
     val imageUrl: String? = null,
     val source: FoodSource = FoodSource.CALOLY,
+    val searchAliases: List<String> = emptyList(),
 )
 
 enum class FoodSource(val label: String) {
-    CALOLY("Caloly"),
+    CALOLY("Caloly tahmini"),
     OPEN_FOOD_FACTS("Open Food Facts"),
+    OPEN_NUTRITION("Açık besin verisi (ODbL)"),
     USER("Benim ürünüm"),
 }
 

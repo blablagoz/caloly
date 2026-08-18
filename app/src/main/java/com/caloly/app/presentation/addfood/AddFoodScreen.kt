@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
@@ -65,6 +67,7 @@ import com.caloly.app.presentation.theme.CalolyLavender
 import com.caloly.app.presentation.theme.CalolyLavenderLight
 import com.caloly.app.presentation.theme.CalolyLavenderWhite
 import com.caloly.app.presentation.theme.CalolyMuted
+import com.caloly.app.presentation.theme.CalolyPink
 import com.caloly.app.presentation.theme.CalolySurface
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -204,15 +207,34 @@ fun AddFoodScreen(
                     Text(
                         when {
                             state.showingRemoteResults -> "İnternet sonuçları"
-                            state.query.isBlank() -> "Hızlı ekle"
+                            state.query.isBlank() -> "Favoriler, son kullanılanlar ve hızlı ekle"
                             else -> "Caloly sonuçları"
                         },
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 18.sp,
                     )
+                    Text(
+                        "Cihaz diline göre sıralanır · ${state.catalogSize} çevrimdışı ürün",
+                        color = CalolyMuted,
+                        fontSize = 11.sp,
+                    )
                 }
                 items(state.results, key = { it.id }) { food ->
-                    FoodResultCard(food = food, onClick = { viewModel.onFoodSelected(food) })
+                    FoodResultCard(
+                        food = food,
+                        isFavorite = food.id in state.favoriteIds,
+                        onFavorite = { viewModel.toggleFavorite(food) },
+                        onClick = { viewModel.onFoodSelected(food) },
+                    )
+                }
+                if (state.showingRemoteResults) {
+                    item {
+                        Text(
+                            "Paketli ürün verileri: Open Food Facts (ODbL). Etiket değerlerini kaydetmeden önce kontrol et.",
+                            color = CalolyMuted,
+                            fontSize = 10.sp,
+                        )
+                    }
                 }
                 if (state.results.isEmpty() && state.errorMessage == null) {
                     item {
@@ -247,7 +269,7 @@ fun AddFoodScreen(
 }
 
 @Composable
-private fun FoodResultCard(food: Food, onClick: () -> Unit) {
+private fun FoodResultCard(food: Food, isFavorite: Boolean, onFavorite: () -> Unit, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(24.dp),
@@ -262,9 +284,18 @@ private fun FoodResultCard(food: Food, onClick: () -> Unit) {
                 Text(food.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 if (food.brand != null) Text(food.brand, color = CalolyLavender, fontSize = 13.sp)
                 Text("100 g • ${food.caloriesPer100g.toInt()} kcal", color = CalolyMuted, fontSize = 13.sp)
-                if (food.source != FoodSource.CALOLY) Text("${food.source.label}${food.barcode?.let { " • $it" } ?: ""}", color = CalolyMuted, fontSize = 11.sp)
+                Text("${food.source.label}${food.barcode?.let { " • $it" } ?: ""}", color = CalolyMuted, fontSize = 11.sp)
             }
-            Text("+", color = CalolyGreen, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(onClick = onFavorite) {
+                    Icon(
+                        if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        if (isFavorite) "Favorilerden çıkar" else "Favorilere ekle",
+                        tint = if (isFavorite) CalolyPink else CalolyMuted,
+                    )
+                }
+                Text("+", color = CalolyGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

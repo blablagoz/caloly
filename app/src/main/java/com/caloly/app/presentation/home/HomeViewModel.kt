@@ -20,11 +20,18 @@ data class HealthUiState(
     val health: HealthSummary = HealthSummary(),
     val loading: Boolean = false,
     val error: String? = null,
+    val lastUpdatedAt: Long? = null,
 )
 
 data class TemplateActionState(
     val loading: Boolean = false,
     val message: String? = null,
+)
+
+data class LogActionState(
+    val message: String? = null,
+    val undoAvailable: Boolean = false,
+    val eventId: Long = 0,
 )
 
 @HiltViewModel
@@ -48,6 +55,9 @@ class HomeViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _templateAction = MutableStateFlow(TemplateActionState())
     val templateAction: StateFlow<TemplateActionState> = _templateAction.asStateFlow()
+    private val _logAction = MutableStateFlow(LogActionState())
+    val logAction: StateFlow<LogActionState> = _logAction.asStateFlow()
+    private var deletedBackup: Pair<String, List<FoodLog>>? = null
 
     val requiredHealthPermissions: Set<String> get() = healthStatus.requiredPermissions
 
@@ -109,6 +119,50 @@ class HomeViewModel @Inject constructor(
         "Şablon silindi"
     }
 
+    fun deleteLog(log: FoodLog) = deleteLogs(listOf(log), "Besin kaydı silindi")
+
+    fun deleteMeal(mealType: MealType) {
+        val logs = summary.value.logs.filter { it.mealType == mealType }
+        deleteLogs(logs, "${mealType.label} kayıtları silindi")
+    }
+
+    fun deleteDay() = deleteLogs(summary.value.logs, "Seçili günün beslenme kayıtları silindi")
+
+    fun undoLastDeletion() {
+        val backup = deletedBackup ?: return
+        viewModelScope.launch {
+            runCatching { nutritionRepository.restoreFoodLogs(backup.first, backup.second) }
+                .onSuccess {
+                    deletedBackup = null
+                    _logAction.value = LogActionState("Silme işlemi geri alındı", eventId = System.nanoTime())
+                }
+                .onFailure {
+                    _logAction.value = LogActionState("Kayıtlar geri yüklenemedi", eventId = System.nanoTime())
+                }
+        }
+    }
+
+    fun updateLog(log: FoodLog, mealType: MealType, amount: Double) {
+        viewModelScope.launch {
+            runCatching { nutritionRepository.updateFoodLog(log, mealType, amount) }
+                .onSuccess { _logAction.value = LogActionState("Besin kaydı güncellendi", eventId = System.nanoTime()) }
+                .onFailure { _logAction.value = LogActionState("Besin kaydı güncellenemedi", eventId = System.nanoTime()) }
+        }
+    }
+
+    private fun deleteLogs(logs: List<FoodLog>, successMessage: String) {
+        if (logs.isEmpty()) return
+        val dateKey = _selectedDate.value.toString()
+        viewModelScope.launch {
+            runCatching { nutritionRepository.deleteFoodLogs(logs.map { it.id }) }
+                .onSuccess {
+                    deletedBackup = dateKey to logs
+                    _logAction.value = LogActionState(successMessage, undoAvailable = true, eventId = System.nanoTime())
+                }
+                .onFailure { _logAction.value = LogActionState("Silme işlemi tamamlanamadı", eventId = System.nanoTime()) }
+        }
+    }
+
     fun clearTemplateMessage() { _templateAction.value = TemplateActionState() }
 
     private fun templateAction(block: suspend () -> String) {
@@ -132,7 +186,13 @@ class HomeViewModel @Inject constructor(
                 val health = if (granted) healthStatus.readToday() else HealthSummary()
                 granted to health
             }.onSuccess { (granted, health) ->
-                _healthState.value = HealthUiState(availability, granted, health, loading = false)
+                _healthState.value = HealthUiState(
+                    availability = availability,
+                    hasPermissions = granted,
+                    health = health,
+                    loading = false,
+                    lastUpdatedAt = if (granted) System.currentTimeMillis() else null,
+                )
             }.onFailure { error ->
                 _healthState.value = _healthState.value.copy(loading = false, error = error.message ?: "Sağlık verisi okunamadı")
             }

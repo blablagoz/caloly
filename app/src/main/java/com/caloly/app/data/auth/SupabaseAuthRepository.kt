@@ -4,6 +4,8 @@ import com.caloly.app.BuildConfig
 import com.caloly.app.domain.auth.AuthRepository
 import com.caloly.app.domain.auth.AuthState
 import com.caloly.app.domain.auth.CalolyUser
+import com.caloly.app.domain.auth.isValidUsername
+import com.caloly.app.domain.auth.normalizeUsername
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Google
@@ -67,7 +69,7 @@ class SupabaseAuthRepository @Inject constructor(
             this.password = password
             data = buildJsonObject {
                 put("display_name", displayName.trim())
-                put("username", username.trim().lowercase())
+                put("username", normalizeUsername(username))
             }
         }
     }
@@ -97,7 +99,7 @@ class SupabaseAuthRepository @Inject constructor(
         supabase.auth.updateUser {
             data {
                 put("display_name", displayName.trim())
-                put("username", username.trim().lowercase())
+                put("username", normalizeUsername(username))
             }
         }
     }
@@ -142,10 +144,10 @@ class SupabaseAuthRepository @Inject constructor(
     }
 
     private suspend fun resolveUsername(username: String, password: String): String = withContext(Dispatchers.IO) {
-        require(username.matches(Regex("[a-zA-Z0-9._]{3,24}"))) { "Geçerli bir e-posta veya kullanıcı adı girin." }
+        require(isValidUsername(username)) { "Geçerli bir e-posta veya kullanıcı adı girin." }
         check(BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_PUBLISHABLE_KEY.isNotBlank()) { "Giriş servisi yapılandırılmamış." }
         val payload = buildJsonObject {
-            put("identifier", username.lowercase())
+            put("identifier", normalizeUsername(username))
             put("password", password)
         }.toString()
         val request = Request.Builder()

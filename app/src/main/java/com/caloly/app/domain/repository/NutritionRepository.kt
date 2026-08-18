@@ -10,10 +10,14 @@ import com.caloly.app.domain.model.TemplateKind
 import kotlinx.coroutines.flow.Flow
 
 interface NutritionRepository {
+    val localCatalogSize: Int
+    val favoriteFoodIds: Set<String>
     fun observeDailySummary(dateKey: String): Flow<DailySummary>
     fun searchLocalFoods(query: String): List<Food>
     suspend fun searchRemoteFoods(query: String): Result<List<Food>>
     suspend fun findFoodByBarcode(barcode: String): Result<Food?>
+    fun saveCustomFood(food: Food)
+    fun toggleFavorite(food: Food): Boolean
     suspend fun addFood(
         dateKey: String,
         mealType: MealType,
@@ -22,6 +26,9 @@ interface NutritionRepository {
         unit: FoodUnit,
     )
     suspend fun deleteFoodLog(id: String)
+    suspend fun deleteFoodLogs(ids: List<String>)
+    suspend fun restoreFoodLogs(dateKey: String, logs: List<FoodLog>)
+    suspend fun updateFoodLog(log: FoodLog, mealType: MealType, amount: Double)
     fun observeLoggedDates(): Flow<Set<String>>
     fun observeTemplates(): Flow<List<NutritionTemplate>>
     suspend fun saveTemplate(name: String, kind: TemplateKind, logs: List<FoodLog>, sourceOwnerName: String? = null): NutritionTemplate

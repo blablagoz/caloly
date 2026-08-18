@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import java.time.LocalDate
+import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -28,7 +29,9 @@ class AddFoodViewModel @Inject constructor(
     private val addFoodLog: AddFoodLogUseCase,
 ) : ViewModel() {
     private var onlineSearchJob: Job? = null
-    private val _uiState = MutableStateFlow(AddFoodUiState())
+    private val _uiState = MutableStateFlow(
+        AddFoodUiState(catalogSize = searchFoods.localCatalogSize, favoriteIds = searchFoods.favoriteFoodIds)
+    )
     val uiState: StateFlow<AddFoodUiState> = _uiState.asStateFlow()
 
     init { refreshLocalResults() }
@@ -47,8 +50,9 @@ class AddFoodViewModel @Inject constructor(
                 val local = searchFoods.local(value)
                 searchFoods.remote(value).onSuccess { remote ->
                     _uiState.update { current ->
+                        val localeFirst = if (Locale.getDefault().language == "tr") local + remote else remote + local
                         if (current.query != value) current else current.copy(
-                            results = (local + remote).distinctBy { it.barcode ?: it.id }.take(40),
+                            results = localeFirst.distinctBy { it.barcode ?: it.id }.take(40),
                             showingRemoteResults = remote.isNotEmpty(),
                         )
                     }
@@ -68,6 +72,12 @@ class AddFoodViewModel @Inject constructor(
                 errorMessage = null,
             )
         }
+    }
+
+    fun toggleFavorite(food: Food) {
+        searchFoods.toggleFavorite(food)
+        _uiState.update { it.copy(favoriteIds = searchFoods.favoriteFoodIds) }
+        refreshLocalResults()
     }
 
     fun onAmountChange(value: String) {
@@ -149,6 +159,7 @@ class AddFoodViewModel @Inject constructor(
             barcode = _uiState.value.missingBarcode,
             source = FoodSource.USER,
         )
+        searchFoods.saveCustom(food)
         _uiState.update { it.copy(missingBarcode = null, errorMessage = null) }
         onFoodSelected(food)
     }
@@ -189,6 +200,8 @@ data class AddFoodUiState(
     val showingRemoteResults: Boolean = false,
     val missingBarcode: String? = null,
     val errorMessage: String? = null,
+    val catalogSize: Int = 0,
+    val favoriteIds: Set<String> = emptySet(),
 ) {
     val amount: Double get() = amountText.replace(',', '.').toDoubleOrNull() ?: 0.0
 
