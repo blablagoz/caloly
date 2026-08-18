@@ -12,7 +12,7 @@
 
 - Mevcut hesaplar canlı Supabase `profiles` tablosuna aktarıldı.
 - Arkadaş arama, istek, bağlantı ve paylaşım RPC'leri kuruldu.
-- Türkçe karakter ve büyük/küçük harf uyumlu kişi araması etkinleştirildi.
+- Türkçe karakter, büyük/küçük harf ve aksansız yazım uyumlu kişi araması etkinleştirildi.
 - Ortak hedefler, paylaşılabilir öğün/gün şablonları ve avatar altyapısı kuruldu.
 - Kullanıcı adıyla giriş için `login-identifier` Edge Function dağıtıldı.
 

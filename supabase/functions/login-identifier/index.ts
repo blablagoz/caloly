@@ -7,7 +7,12 @@ const headers = {
 };
 
 const normalizeUsername = (value: string) =>
-  value.trim().normalize("NFC").toLocaleLowerCase("tr-TR");
+  value
+    .trim()
+    .toLocaleLowerCase("tr-TR")
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .replaceAll("ı", "i");
 
 Deno.serve(async (request) => {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });

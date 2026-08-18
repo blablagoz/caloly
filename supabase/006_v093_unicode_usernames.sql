@@ -10,7 +10,17 @@ language sql
 immutable
 parallel safe
 as $$
-    select lower(translate(normalize(coalesce(value, ''), NFC), 'ÇĞİÖŞÜI', 'çğiöşüı'))
+    select translate(
+        lower(
+            translate(
+                normalize(coalesce(value, ''), NFC),
+                'ÇĞİÖŞÜIçğıöşü',
+                'CGIOSUIcgiosu'
+            )
+        ),
+        U&'\0307',
+        ''
+    )
 $$;
 
 alter table public.login_identifiers add column if not exists username_key text;
