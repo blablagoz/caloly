@@ -186,6 +186,17 @@ class AddFoodViewModel @Inject constructor(
             } else {
                 _uiState.value.localResults
             }
+            if (generation != searchGeneration || _uiState.value.query.trim() != query) return@launch
+            if (requestedPage == 1) {
+                _uiState.update {
+                    it.copy(
+                        localResults = local,
+                        onlineResults = emptyList(),
+                        catalogSize = searchFoods.localCatalogSize,
+                        isLocalLoading = false,
+                    )
+                }
+            }
             val remoteResult = searchFoods.remote(query, requestedPage)
             if (generation != searchGeneration || _uiState.value.query.trim() != query) return@launch
             remoteResult.onSuccess { remotePage ->

@@ -21,6 +21,19 @@ import com.caloly.app.domain.model.TemplateKind
 import com.caloly.app.domain.repository.NutritionRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.postgrest.from
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -34,7 +47,53 @@ class NutritionRepositoryImpl @Inject constructor(
     private val gson: Gson,
     private val dao: FoodLogDao,
     private val openFoodFactsApi: OpenFoodFactsApi,
+    private val supabase: SupabaseClient,
 ) : NutritionRepository {
+
+    @Serializable
+    private data class CloudFoodLog(
+        val id: String,
+        @SerialName("user_id") val userId: String,
+        @SerialName("date_key") val dateKey: String,
+        @SerialName("meal_type") val mealType: String,
+        @SerialName("food_name") val foodName: String,
+        val brand: String? = null,
+        val amount: Double,
+        val unit: String,
+        val grams: Double,
+        val calories: Int,
+        @SerialName("protein_grams") val proteinGrams: Double,
+        @SerialName("carbs_grams") val carbsGrams: Double,
+        @SerialName("fat_grams") val fatGrams: Double,
+        @SerialName("created_at") val createdAt: Long,
+    )
+
+    private data class IndexedFood(
+        val food: Food,
+        val nameKey: String = food.name.searchKey(),
+        val brandKey: String = food.brand?.searchKey().orEmpty(),
+        val aliasKey: String = food.searchAliases.joinToString(" ").searchKey(),
+        val nameWords: Set<String> = nameKey.split(' ').toSet(),
+        val haystack: String = "$nameKey $brandKey $aliasKey",
+    ) {
+        fun score(query: String, queryWords: List<String>): Int {
+            var score = when {
+                nameKey == query -> 1000
+                nameKey.startsWith("$query ") -> 850
+                query in nameWords -> 760
+                nameKey.contains(query) -> 650
+                brandKey == query -> 900
+                brandKey.startsWith(query) -> 820
+                brandKey.contains(query) -> 720
+                queryWords.all { it.length < 2 || haystack.contains(it) } -> 400
+                else -> 0
+            }
+            val aliases = broadFoodAliases[query]
+            if (aliases != null && aliases.any { haystack.contains(it.searchKey()) }) score = maxOf(score, 560)
+            if (score > 0 && food.source == com.caloly.app.domain.model.FoodSource.CALOLY) score += 30
+            return score
+        }
+    }
 
     private data class SavedFoodRecord(
         val food: Food,
@@ -65,6 +124,10 @@ class NutritionRepositoryImpl @Inject constructor(
     )
 
     private val savedFoodPreferences by lazy { context.getSharedPreferences("saved_foods", Context.MODE_PRIVATE) }
+    private val syncPreferences by lazy { context.getSharedPreferences("nutrition_cloud_sync", Context.MODE_PRIVATE) }
+    private val cloudSyncMutex = Mutex()
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var syncedUserId: String? = null
     private val savedFoods: MutableMap<String, SavedFoodRecord> by lazy {
         runCatching {
             gson.fromJson(savedFoodPreferences.getString("records", "[]"), Array<SavedFoodRecord>::class.java)
@@ -107,6 +170,18 @@ class NutritionRepositoryImpl @Inject constructor(
         (foodCatalog + bundledTurkeyFoods + turkishGenericFoods).distinctBy { it.barcode ?: it.id }
     }
     private val localFoods: List<Food> by localFoodsDelegate
+    private val localSearchIndexDelegate = lazy {
+        localFoods.distinctBy { it.barcode ?: it.id }.map(::IndexedFood)
+    }
+    private val localSearchIndex: List<IndexedFood> by localSearchIndexDelegate
+
+    init {
+        // Parse and normalize the bundled catalog away from the UI thread. The empty initial
+        // screen remains immediate; subsequent keystrokes only compare cached strings.
+        repositoryScope.launch(Dispatchers.Default) {
+            localSearchIndex.size
+        }
+    }
 
     /**
      * Curated brand-menu matches are kept outside [localFoods]. They participate only when
@@ -147,7 +222,9 @@ class NutritionRepositoryImpl @Inject constructor(
     override val favoriteFoodIds: Set<String> get() = synchronized(savedFoods) { savedFoods.values.filter { it.favorite }.mapTo(mutableSetOf()) { it.food.id } }
 
     override fun observeDailySummary(dateKey: String): Flow<DailySummary> =
-        dao.observeByDate(dateKey).map { entities ->
+        dao.observeByDate(dateKey).onStart {
+            repositoryScope.launch { runCatching { ensureCloudHydrated() } }
+        }.map { entities ->
             val logs = entities.map { it.toDomain() }
             DailySummary(
                 consumedCalories = logs.sumOf { it.calories },
@@ -168,9 +245,10 @@ class NutritionRepositoryImpl @Inject constructor(
             return (saved + foodCatalog).distinctBy { it.id }.take(20)
         }
         val normalized = query.searchKey()
-        val candidates = synchronized(savedFoods) { savedFoods.values.map { it.food } } + localFoods
-        return candidates.distinctBy { it.barcode ?: it.id }.mapNotNull { food ->
-            food.searchScore(normalized).takeIf { it > 0 }?.let { it to food }
+        val queryWords = normalized.split(' ')
+        val savedIndex = synchronized(savedFoods) { savedFoods.values.map { IndexedFood(it.food) } }
+        return (savedIndex + localSearchIndex).distinctBy { it.food.barcode ?: it.food.id }.mapNotNull { indexed ->
+            indexed.score(normalized, queryWords).takeIf { it > 0 }?.let { it to indexed.food }
         }.sortedWith(compareByDescending<Pair<Int, Food>> { it.first }.thenBy { it.second.name })
             .map { it.second }
             .take(40)
@@ -184,20 +262,22 @@ class NutritionRepositoryImpl @Inject constructor(
         val languageCode = locale.language.ifBlank { "tr" }
         val countryCode = locale.country.lowercase(Locale.ROOT).ifBlank { if (languageCode == "tr") "tr" else "world" }
         val isBrandQuery = normalizedQuery in knownBrandKeys
-        val response = if (isBrandQuery) {
-            openFoodFactsApi.searchByBrand(
-                brand = query.trim(),
-                page = page,
-                languageCode = languageCode,
-                countryCode = countryCode,
-            )
-        } else {
-            openFoodFactsApi.search(
-                query = query.trim(),
-                page = page,
-                languageCode = languageCode,
-                countryCode = countryCode,
-            )
+        val response = withTimeout(10_000) {
+            if (isBrandQuery) {
+                openFoodFactsApi.searchByBrand(
+                    brand = query.trim(),
+                    page = page,
+                    languageCode = languageCode,
+                    countryCode = countryCode,
+                )
+            } else {
+                openFoodFactsApi.search(
+                    query = query.trim(),
+                    page = page,
+                    languageCode = languageCode,
+                    countryCode = countryCode,
+                )
+            }
         }
         val openFoods = response.products
             .mapNotNull { it.toDomainOrNull(locale.language) }
@@ -261,8 +341,7 @@ class NutritionRepositoryImpl @Inject constructor(
             else -> amount * food.gramsPerUnit
         }
         val factor = grams / 100.0
-        dao.insert(
-            FoodLogEntity(
+        val entity = FoodLogEntity(
                 id = UUID.randomUUID().toString(),
                 dateKey = dateKey,
                 mealType = mealType.name,
@@ -277,18 +356,27 @@ class NutritionRepositoryImpl @Inject constructor(
                 fatGrams = food.fatPer100g * factor,
                 createdAt = System.currentTimeMillis(),
             )
-        )
+        dao.insert(entity)
+        syncCloud(entity)
         rememberFood(food)
     }
 
-    override suspend fun deleteFoodLog(id: String) = dao.deleteById(id)
+    override suspend fun deleteFoodLog(id: String) {
+        dao.deleteById(id)
+        deleteCloud(id)
+    }
 
     override suspend fun deleteFoodLogs(ids: List<String>) {
-        if (ids.isNotEmpty()) dao.deleteByIds(ids)
+        if (ids.isNotEmpty()) {
+            dao.deleteByIds(ids)
+            ids.forEach { deleteCloud(it) }
+        }
     }
 
     override suspend fun restoreFoodLogs(dateKey: String, logs: List<FoodLog>) {
-        dao.insertLogs(logs.mapIndexed { index, log -> log.toEntity(dateKey, log.id, System.currentTimeMillis() + index) })
+        val entities = logs.mapIndexed { index, log -> log.toEntity(dateKey, log.id, System.currentTimeMillis() + index) }
+        dao.insertLogs(entities)
+        syncCloud(entities)
     }
 
     override suspend fun updateFoodLog(log: FoodLog, mealType: MealType, amount: Double) {
@@ -304,9 +392,13 @@ class NutritionRepositoryImpl @Inject constructor(
             carbsGrams = log.carbsGrams * factor,
             fatGrams = log.fatGrams * factor,
         )
+        dao.logById(log.id)?.let { syncCloud(it) }
     }
 
-    override fun observeLoggedDates(): Flow<Set<String>> = dao.observeLoggedDates().map { it.toSet() }
+    override fun observeLoggedDates(): Flow<Set<String>> =
+        dao.observeLoggedDates().onStart {
+            repositoryScope.launch { runCatching { ensureCloudHydrated() } }
+        }.map { it.toSet() }
 
     override fun observeTemplates(): Flow<List<NutritionTemplate>> =
         dao.observeTemplates().map { templates -> templates.map { it.toDomain() } }
@@ -340,7 +432,7 @@ class NutritionRepositoryImpl @Inject constructor(
     override suspend fun applyTemplate(templateId: String, dateKey: String) {
         val template = dao.templateById(templateId)?.toDomain() ?: error("Kayıtlı öğün bulunamadı.")
         val now = System.currentTimeMillis()
-        dao.insertLogs(template.items.mapIndexed { index, item ->
+        val entities = template.items.mapIndexed { index, item ->
             FoodLogEntity(
                 id = UUID.randomUUID().toString(),
                 dateKey = dateKey,
@@ -356,10 +448,93 @@ class NutritionRepositoryImpl @Inject constructor(
                 fatGrams = item.fatGrams,
                 createdAt = now + index,
             )
-        })
+        }
+        dao.insertLogs(entities)
+        syncCloud(entities)
     }
 
     override suspend fun deleteTemplate(id: String) = dao.deleteTemplate(id)
+
+    private suspend fun ensureCloudHydrated() {
+        val userId = supabase.auth.currentUserOrNull()?.id ?: return
+        if (syncedUserId == userId) return
+        cloudSyncMutex.withLock {
+            if (syncedUserId == userId) return
+            val previousOwner = syncPreferences.getString(CLOUD_OWNER_KEY, null)
+
+            // Existing installations had local-only logs. On their first synchronized launch,
+            // upload those rows before pulling so an ordinary app update does not lose them.
+            if (previousOwner == null) {
+                val existingLocal = dao.allLogs()
+                if (existingLocal.isNotEmpty()) {
+                    supabase.from(CLOUD_TABLE).upsert(existingLocal.map { it.toCloud(userId) }) {
+                        onConflict = "id"
+                    }
+                }
+            }
+
+            val cloudRows = supabase.from(CLOUD_TABLE).select().decodeList<CloudFoodLog>()
+            if (previousOwner != null && previousOwner != userId) dao.deleteAllLogs()
+            if (cloudRows.isNotEmpty()) dao.insertLogs(cloudRows.map { it.toEntity() })
+            syncPreferences.edit().putString(CLOUD_OWNER_KEY, userId).apply()
+            syncedUserId = userId
+        }
+    }
+
+    private suspend fun syncCloud(entity: FoodLogEntity) {
+        val userId = supabase.auth.currentUserOrNull()?.id ?: return
+        runCatching {
+            supabase.from(CLOUD_TABLE).upsert(entity.toCloud(userId)) { onConflict = "id" }
+        }
+    }
+
+    private suspend fun syncCloud(entities: List<FoodLogEntity>) {
+        if (entities.isEmpty()) return
+        val userId = supabase.auth.currentUserOrNull()?.id ?: return
+        runCatching {
+            supabase.from(CLOUD_TABLE).upsert(entities.map { it.toCloud(userId) }) { onConflict = "id" }
+        }
+    }
+
+    private suspend fun deleteCloud(id: String) {
+        if (supabase.auth.currentUserOrNull() == null) return
+        runCatching {
+            supabase.from(CLOUD_TABLE).delete { filter { eq("id", id) } }
+        }
+    }
+
+    private fun FoodLogEntity.toCloud(userId: String) = CloudFoodLog(
+        id = id,
+        userId = userId,
+        dateKey = dateKey,
+        mealType = mealType,
+        foodName = foodName,
+        brand = brand,
+        amount = amount,
+        unit = unit,
+        grams = grams,
+        calories = calories,
+        proteinGrams = proteinGrams,
+        carbsGrams = carbsGrams,
+        fatGrams = fatGrams,
+        createdAt = createdAt,
+    )
+
+    private fun CloudFoodLog.toEntity() = FoodLogEntity(
+        id = id,
+        dateKey = dateKey,
+        mealType = mealType,
+        foodName = foodName,
+        brand = brand,
+        amount = amount,
+        unit = unit,
+        grams = grams,
+        calories = calories,
+        proteinGrams = proteinGrams,
+        carbsGrams = carbsGrams,
+        fatGrams = fatGrams,
+        createdAt = createdAt,
+    )
 
     private fun rememberFood(food: Food) = synchronized(savedFoods) {
         val previous = savedFoods[food.id]
@@ -452,6 +627,8 @@ class NutritionRepositoryImpl @Inject constructor(
     )
 
     companion object {
+        private const val CLOUD_TABLE = "caloly_food_logs"
+        private const val CLOUD_OWNER_KEY = "owner_user_id"
         private val foodCatalog = listOf(
             Food("egg", "Yumurta", caloriesPer100g = 155.0, proteinPer100g = 13.0, carbsPer100g = 1.1, fatPer100g = 11.0, defaultUnit = FoodUnit.PIECE, gramsPerUnit = 50.0),
             Food("rice", "Pirinç pilavı", caloriesPer100g = 130.0, proteinPer100g = 2.7, carbsPer100g = 28.0, fatPer100g = 0.3),

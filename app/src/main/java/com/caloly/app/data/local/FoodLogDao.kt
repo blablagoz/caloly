@@ -15,6 +15,15 @@ interface FoodLogDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(log: FoodLogEntity)
 
+    @Query("SELECT * FROM food_logs ORDER BY createdAt")
+    suspend fun allLogs(): List<FoodLogEntity>
+
+    @Query("SELECT * FROM food_logs WHERE id = :id LIMIT 1")
+    suspend fun logById(id: String): FoodLogEntity?
+
+    @Query("DELETE FROM food_logs")
+    suspend fun deleteAllLogs()
+
     @Query("DELETE FROM food_logs WHERE id = :id")
     suspend fun deleteById(id: String)
 

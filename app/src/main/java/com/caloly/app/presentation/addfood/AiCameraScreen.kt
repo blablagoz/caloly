@@ -6,12 +6,14 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.Camera
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +36,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,6 +73,9 @@ fun AiCameraScreen(
     }
     var cameraError by remember { mutableStateOf<String?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var zoomRatio by remember { mutableStateOf(1f) }
+    var maximumZoom by remember { mutableStateOf(1f) }
     val imageCapture = remember {
         ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
@@ -101,24 +108,72 @@ fun AiCameraScreen(
                 if (!cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)) {
                     error("Arka kamera bulunamadı.")
                 }
-                cameraProvider.bindToLifecycle(
+                camera = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
                     imageCapture,
-                )
+                ).also { boundCamera ->
+                    maximumZoom = boundCamera.cameraInfo.zoomState.value
+                        ?.maxZoomRatio
+                        ?.coerceAtMost(5f)
+                        ?.coerceAtLeast(1f)
+                        ?: 1f
+                    zoomRatio = 1f
+                    boundCamera.cameraControl.setZoomRatio(1f)
+                }
             }.onFailure {
                 cameraError = "Arka kamera kullanılamıyor. Fotoğraflarımdan seçebilirsin."
             }
         }, mainExecutor)
         onDispose {
+            camera?.cameraControl?.setZoomRatio(1f)
+            camera = null
+            zoomRatio = 1f
             if (cameraProviderFuture.isDone) runCatching { cameraProviderFuture.get().unbindAll() }
         }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (hasCameraPermission) {
-            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+            AndroidView(
+                factory = { previewView },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(camera, maximumZoom) {
+                        detectTransformGestures { _, _, gestureZoom, _ ->
+                            val nextZoom = (zoomRatio * gestureZoom).coerceIn(1f, maximumZoom)
+                            zoomRatio = nextZoom
+                            camera?.cameraControl?.setZoomRatio(nextZoom)
+                        }
+                    },
+            )
+        }
+
+        if (hasCameraPermission && cameraError == null && maximumZoom > 1f) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 28.dp, vertical = 126.dp),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = .62f)),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("${"%.1f".format(zoomRatio)}×", color = Color.White, fontWeight = FontWeight.Bold)
+                    Slider(
+                        value = zoomRatio,
+                        onValueChange = { value ->
+                            zoomRatio = value
+                            camera?.cameraControl?.setZoomRatio(value)
+                        },
+                        valueRange = 1f..maximumZoom,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
         }
 
         Row(

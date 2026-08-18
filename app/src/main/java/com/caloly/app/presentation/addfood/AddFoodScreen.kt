@@ -424,11 +424,10 @@ private fun AiOptionsDialog(
                     Spacer(Modifier.size(10.dp))
                     Column {
                         Text("Yapay Zekâ ile Tanı", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
-                        Text("Gemini 3.5 Flash-Lite", color = CalolyMuted, fontSize = 11.sp)
                     }
                 }
                 Text(
-                    "Fotoğraf analiz için Google Gemini hizmetine gönderilir; Caloly fotoğrafı kalıcı olarak saklamaz.",
+                    "Caloly fotoğrafı kalıcı saklamaz.",
                     color = CalolyMuted,
                     fontSize = 12.sp,
                 )

@@ -6,7 +6,11 @@ const JSON_HEADERS = {
   "Cache-Control": "no-store",
 };
 
-const MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite";
+const MODELS = Array.from(new Set([
+  Deno.env.get("GEMINI_MODEL") || "gemini-3.6-flash",
+  "gemini-3-flash-preview",
+  "gemini-2.5-flash",
+]));
 
 type RequestBody = {
   mode?: "photo" | "text";
@@ -145,21 +149,28 @@ Deno.serve(async (request) => {
         },
       });
     }
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODEL)}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: inputParts }],
-          generationConfig: {
-            responseFormat: {
-              text: { mimeType: "application/json", schema: responseSchema },
-            },
+    const geminiRequest = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: inputParts }],
+        generationConfig: {
+          responseFormat: {
+            text: { mimeType: "application/json", schema: responseSchema },
           },
-        }),
-      },
-    );
+        },
+      }),
+    };
+    let geminiResponse: Response | null = null;
+    for (const model of MODELS) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        geminiRequest,
+      );
+      geminiResponse = response;
+      if (response.ok || response.status !== 404) break;
+    }
+    if (!geminiResponse) return json(503, { message: "Yapay zekâ şu anda yanıt veremiyor." });
     if (!geminiResponse.ok) {
       console.error("gemini_error", geminiResponse.status);
       return json(503, { message: "Yapay zekâ şu anda yanıt veremiyor. Biraz sonra tekrar dene." });
