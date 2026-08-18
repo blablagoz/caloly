@@ -1,5 +1,8 @@
 package com.caloly.app.presentation.addfood
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,10 +22,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
@@ -33,6 +41,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,11 +65,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.caloly.app.domain.model.Food
 import com.caloly.app.domain.model.FoodUnit
 import com.caloly.app.domain.model.MealType
+import com.caloly.app.domain.model.DetectedFood
+import com.caloly.app.domain.model.NutritionSource
 import com.caloly.app.presentation.theme.CalolyGreen
 import com.caloly.app.presentation.theme.CalolyLavender
 import com.caloly.app.presentation.theme.CalolyLavenderLight
@@ -71,6 +83,9 @@ import com.caloly.app.presentation.theme.CalolySurface
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
+import kotlin.math.roundToInt
+
+private const val AI_FOOD_NOT_FOUND = "Yemek bulunamadı"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -81,6 +96,15 @@ fun AddFoodScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var showAiOptions by remember { mutableStateOf(false) }
+    var showManualAiEntry by remember { mutableStateOf(false) }
+    var showAiCamera by remember { mutableStateOf(false) }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let {
+            showAiCamera = false
+            viewModel.analyzePhoto(it.toString())
+        }
+    }
     androidx.compose.runtime.LaunchedEffect(dateKey) { viewModel.setDate(dateKey) }
 
     fun launchBarcodeScanner() {
@@ -99,8 +123,8 @@ fun AddFoodScreen(
                 barcode.rawValue?.let(viewModel::onBarcodeScanned)
                     ?: viewModel.onScannerError("Barkod okunamadı.")
             }
-            .addOnFailureListener { error ->
-                viewModel.onScannerError(error.message ?: "Barkod tarayıcı açılamadı.")
+            .addOnFailureListener {
+                viewModel.onScannerError("Barkod tarayıcı açılamadı.")
             }
     }
 
@@ -142,19 +166,33 @@ fun AddFoodScreen(
                 }
             }
 
-            item {
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = viewModel::onQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    placeholder = { Text("Albeni, Burçak, yumurta, pilav...") },
-                    shape = RoundedCornerShape(28.dp),
-                )
-            }
-
-            if (state.selectedFood == null) {
+            val currentAiAnalysis = state.aiAnalysis
+            if (currentAiAnalysis != null) {
+                item {
+                    AiMealReview(
+                        analysis = currentAiAnalysis,
+                        isSaving = state.isAiSaving,
+                        onConfirm = { viewModel.confirmAiMeal(onBack) },
+                        onReject = viewModel::dismissAiFlow,
+                        onUpdate = viewModel::updateDetectedFood,
+                        onRemove = viewModel::removeDetectedFood,
+                        onManualEntry = { showManualAiEntry = true },
+                    )
+                }
+            } else if (state.isAiLoading) {
+                item { AiLoadingCard() }
+            } else if (state.selectedFood == null) {
+                item {
+                    OutlinedTextField(
+                        value = state.query,
+                        onValueChange = viewModel::onQueryChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        placeholder = { Text("Albeni, Burçak, yumurta, pilav...") },
+                        shape = RoundedCornerShape(28.dp),
+                    )
+                }
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -170,7 +208,7 @@ fun AddFoodScreen(
                                 contentColor = CalolyLavenderWhite,
                             ),
                         ) {
-                            if (state.isLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            if (state.isOnlineLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                             else {
                                 Icon(Icons.Rounded.Search, null)
                                 Spacer(Modifier.size(7.dp))
@@ -187,6 +225,37 @@ fun AddFoodScreen(
                             Spacer(Modifier.size(7.dp))
                             Text("Barkod Tara", color = CalolyLavender, fontWeight = FontWeight.Bold)
                         }
+                    }
+                }
+
+                item {
+                    Button(
+                        onClick = { showAiOptions = true },
+                        enabled = !state.isLoading,
+                        modifier = Modifier.fillMaxWidth().height(58.dp),
+                        shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CalolyLavender,
+                            contentColor = CalolyLavenderWhite,
+                        ),
+                    ) {
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Column {
+                            Text("Yapay Zekâ", fontWeight = FontWeight.ExtraBold)
+                            Text("Kamerayla yemeği tanı", fontSize = 10.sp)
+                        }
+                    }
+                }
+
+                state.aiErrorMessage?.takeUnless { it == AI_FOOD_NOT_FOUND }?.let { message ->
+                    item {
+                        AiErrorCard(
+                            message = message,
+                            canRetry = state.lastAiPhotoUri != null,
+                            onRetry = viewModel::retryPhotoAnalysis,
+                            onDismiss = viewModel::dismissAiFlow,
+                        )
                     }
                 }
 
@@ -253,7 +322,7 @@ fun AddFoodScreen(
                 if (state.allResultsEmpty && !state.isLocalLoading && state.errorMessage == null) {
                     item {
                         Text(
-                            "Eşleşme bulunamadı. İnternette Ara veya Barkod Tara ile daha fazla ürüne ulaşabilirsin.",
+                            "Ürün bulunamadı.",
                             color = CalolyMuted,
                             modifier = Modifier.padding(vertical = 8.dp),
                         )
@@ -273,6 +342,20 @@ fun AddFoodScreen(
         }
     }
 
+    if (showAiCamera) {
+        AiCameraScreen(
+            onClose = { showAiCamera = false },
+            onPhotoCaptured = { uri ->
+                showAiCamera = false
+                viewModel.analyzePhoto(uri.toString())
+            },
+            onOpenGallery = {
+                galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+        )
+        return
+    }
+
     state.missingBarcode?.let { barcode ->
         ManualFoodDialog(
             barcode = barcode,
@@ -280,7 +363,340 @@ fun AddFoodScreen(
             onSave = viewModel::createCustomFood,
         )
     }
+
+    if (state.aiErrorMessage == AI_FOOD_NOT_FOUND) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissAiFlow,
+            title = { Text(AI_FOOD_NOT_FOUND, fontWeight = FontWeight.ExtraBold) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissAiFlow) {
+                    Text("Tamam")
+                }
+            },
+        )
+    }
+
+    if (showAiOptions) {
+        AiOptionsDialog(
+            onDismiss = { showAiOptions = false },
+            onCamera = {
+                showAiOptions = false
+                showAiCamera = true
+            },
+            onGallery = {
+                showAiOptions = false
+                galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onManual = {
+                showAiOptions = false
+                showManualAiEntry = true
+            },
+        )
+    }
+
+    if (showManualAiEntry) {
+        ManualAiMealDialog(
+            onDismiss = { showManualAiEntry = false },
+            onCalculate = { description ->
+                showManualAiEntry = false
+                viewModel.analyzeDescriptionAndSave(description, onBack)
+            },
+        )
+    }
 }
+
+@Composable
+private fun AiOptionsDialog(
+    onDismiss: () -> Unit,
+    onCamera: () -> Unit,
+    onGallery: () -> Unit,
+    onManual: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(30.dp),
+            colors = CardDefaults.cardColors(containerColor = CalolySurface),
+        ) {
+            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.AutoAwesome, null, tint = CalolyLavender, modifier = Modifier.size(30.dp))
+                    Spacer(Modifier.size(10.dp))
+                    Column {
+                        Text("Yapay Zekâ ile Tanı", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("Gemini 3.5 Flash-Lite", color = CalolyMuted, fontSize = 11.sp)
+                    }
+                }
+                Text(
+                    "Fotoğraf analiz için Google Gemini hizmetine gönderilir; Caloly fotoğrafı kalıcı olarak saklamaz.",
+                    color = CalolyMuted,
+                    fontSize = 12.sp,
+                )
+                Text("Uyarı : Kota Saat Başı 3 keredir", color = CalolyPink, fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = onCamera,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(containerColor = CalolyLavender),
+                ) {
+                    Icon(Icons.Rounded.CameraAlt, null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Kamerayı Aç", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(onClick = onGallery, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(50)) {
+                    Icon(Icons.Rounded.Image, null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Galeriden Seç")
+                }
+                HorizontalDivider(color = CalolyMuted.copy(alpha = .25f))
+                TextButton(onClick = onManual, modifier = Modifier.fillMaxWidth()) {
+                    Text("Yazarak oto hesapla", color = CalolyGreen, fontWeight = FontWeight.ExtraBold)
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Vazgeç", color = CalolyMuted) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiLoadingCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(30.dp),
+        colors = CardDefaults.cardColors(containerColor = CalolyLavenderLight.copy(alpha = .55f)),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            CircularProgressIndicator(color = CalolyLavender)
+            Text("Caloly yemeğini analiz ediyor…", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+            Text("Yiyecekler ve tahmini porsiyonlar ayrı ayrı hesaplanıyor.", color = CalolyMuted, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun AiErrorCard(message: String, canRetry: Boolean, onRetry: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = CalolyPink.copy(alpha = .12f)),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(message, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (canRetry) TextButton(onClick = onRetry) { Text("Tekrar Dene") }
+                TextButton(onClick = onDismiss) { Text("Kapat", color = CalolyMuted) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiMealReview(
+    analysis: com.caloly.app.domain.model.AiMealAnalysis,
+    isSaving: Boolean,
+    onConfirm: () -> Unit,
+    onReject: () -> Unit,
+    onUpdate: (Int, DetectedFood) -> Unit,
+    onRemove: (Int) -> Unit,
+    onManualEntry: () -> Unit,
+) {
+    var editingIndex by remember(analysis.foods) { mutableStateOf<Int?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = CalolyLavenderLight.copy(alpha = .55f)),
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.AutoAwesome, null, tint = CalolyLavender)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Caloly AI", color = CalolyLavender, fontWeight = FontWeight.ExtraBold)
+                }
+                Text(analysis.confirmationQuestion, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                analysis.remainingPhotoScans?.let {
+                    Text("Bu saat içinde kalan fotoğraf hakkı: $it", color = CalolyMuted, fontSize = 11.sp)
+                }
+            }
+        }
+
+        analysis.foods.forEachIndexed { index, food ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = CalolySurface),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(food.name, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                        food.brand?.let { Text(it, color = CalolyLavender, fontSize = 12.sp) }
+                        Text("${food.displayGrams}  •  ${food.displayCalories}", color = CalolyMuted)
+                        Text(
+                            "${food.proteinGrams.roundToInt()}P · ${food.carbsGrams.roundToInt()}K · ${food.fatGrams.roundToInt()}Y",
+                            color = CalolyGreen,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            when (food.nutritionSource) {
+                                NutritionSource.VERIFIED_DATABASE -> "Doğrulanmış besin verisi"
+                                NutritionSource.USER_EDITED -> "Senin düzenlediğin değer"
+                                NutritionSource.AI_ESTIMATE -> "Yapay zekâ tahmini"
+                            },
+                            color = CalolyMuted,
+                            fontSize = 10.sp,
+                        )
+                    }
+                    IconButton(onClick = { editingIndex = index }) { Icon(Icons.Rounded.Edit, "Düzenle", tint = CalolyLavender) }
+                    IconButton(onClick = { onRemove(index) }) { Icon(Icons.Rounded.DeleteOutline, "Çıkar", tint = CalolyPink) }
+                }
+            }
+        }
+
+        val totalCalories = analysis.foods.sumOf(DetectedFood::calories).roundToInt()
+        val totalProtein = analysis.foods.sumOf(DetectedFood::proteinGrams).roundToInt()
+        val totalCarbs = analysis.foods.sumOf(DetectedFood::carbsGrams).roundToInt()
+        val totalFat = analysis.foods.sumOf(DetectedFood::fatGrams).roundToInt()
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = CalolyLavenderLight.copy(alpha = .45f)),
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("Tahmini toplam: $totalCalories kcal", color = CalolyLavender, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Text("$totalProtein g protein · $totalCarbs g karbonhidrat · $totalFat g yağ", color = CalolyMuted, fontSize = 12.sp)
+            }
+        }
+
+        Text(
+            "Tek fotoğraftan porsiyon kesin ölçülemez. Kaydetmeden önce tahminleri kontrol edip düzenleyebilirsin.",
+            color = CalolyMuted,
+            fontSize = 11.sp,
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(50)) {
+                Icon(Icons.Rounded.Close, null, tint = CalolyPink)
+                Spacer(Modifier.size(6.dp))
+                Text("Hayır", color = CalolyPink)
+            }
+            Button(
+                onClick = onConfirm,
+                enabled = analysis.foods.isNotEmpty() && !isSaving,
+                modifier = Modifier.weight(1f).height(54.dp),
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(containerColor = CalolyGreen),
+            ) {
+                if (isSaving) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
+                else {
+                    Icon(Icons.Rounded.Check, null)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Evet, Ekle", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+        TextButton(onClick = onManualEntry, modifier = Modifier.fillMaxWidth()) {
+            Text("Yazarak oto hesapla", color = CalolyGreen, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+
+    editingIndex?.let { index ->
+        analysis.foods.getOrNull(index)?.let { food ->
+            DetectedFoodEditDialog(
+                food = food,
+                onDismiss = { editingIndex = null },
+                onSave = {
+                    onUpdate(index, it)
+                    editingIndex = null
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetectedFoodEditDialog(food: DetectedFood, onDismiss: () -> Unit, onSave: (DetectedFood) -> Unit) {
+    var name by remember(food) { mutableStateOf(food.name) }
+    var grams by remember(food) { mutableStateOf(food.estimatedGrams.roundToInt().toString()) }
+    var calories by remember(food) { mutableStateOf(food.calories.roundToInt().toString()) }
+    var protein by remember(food) { mutableStateOf(food.proteinGrams.roundToInt().toString()) }
+    var carbs by remember(food) { mutableStateOf(food.carbsGrams.roundToInt().toString()) }
+    var fat by remember(food) { mutableStateOf(food.fatGrams.roundToInt().toString()) }
+    fun number(value: String) = value.replace(',', '.').toDoubleOrNull()
+    val valid = name.isNotBlank() && number(grams) != null && number(calories) != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Yemeği Düzenle") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Yemek adı") }, singleLine = true)
+                OutlinedTextField(grams, { grams = it }, label = { Text("Tahmini gram") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(calories, { calories = it }, label = { Text("Kalori") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    OutlinedTextField(protein, { protein = it }, label = { Text("Protein") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(carbs, { carbs = it }, label = { Text("Karb.") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(fat, { fat = it }, label = { Text("Yağ") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = valid,
+                onClick = {
+                    val newGrams = number(grams)!!.coerceAtLeast(1.0)
+                    val newCalories = number(calories)!!.coerceAtLeast(0.0)
+                    onSave(
+                        food.copy(
+                            name = name.trim(),
+                            estimatedGrams = newGrams,
+                            gramsMin = newGrams,
+                            gramsMax = newGrams,
+                            calories = newCalories,
+                            caloriesMin = newCalories,
+                            caloriesMax = newCalories,
+                            proteinGrams = number(protein)?.coerceAtLeast(0.0) ?: 0.0,
+                            carbsGrams = number(carbs)?.coerceAtLeast(0.0) ?: 0.0,
+                            fatGrams = number(fat)?.coerceAtLeast(0.0) ?: 0.0,
+                            nutritionSource = NutritionSource.USER_EDITED,
+                        )
+                    )
+                },
+            ) { Text("Kaydet") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Vazgeç") } },
+    )
+}
+
+@Composable
+private fun ManualAiMealDialog(onDismiss: () -> Unit, onCalculate: (String) -> Unit) {
+    var description by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Yazarak oto hesapla") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Örneğin: 1 tabak pilav üstü kuru fasulye ve 1 kâse yoğurt", color = CalolyMuted, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { if (it.length <= 600) description = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Öğünü yaz") },
+                    minLines = 3,
+                )
+                Text("Yazılı hesaplama kamera kotasını kullanmaz.", color = CalolyMuted, fontSize = 10.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onCalculate(description) }, enabled = description.trim().length >= 3) { Text("Hesapla ve Ekle") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Vazgeç") } },
+    )
+}
+
 
 @Composable
 private fun FoodResultCard(food: Food, isFavorite: Boolean, onFavorite: () -> Unit, onClick: () -> Unit) {

@@ -1,4 +1,5 @@
 .gradle/
+.gradle-runtime/
 **/build/
 github-artifact/
 local.properties

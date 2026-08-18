@@ -1,10 +1,21 @@
 package com.caloly.app.presentation.addfood
 
 import com.caloly.app.domain.model.Food
+import com.caloly.app.domain.model.MealType
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AddFoodResultsTest {
+    @Test
+    fun `changing meal never filters search results`() {
+        val coffee = food("coffee", "Kahve")
+        val breakfast = AddFoodUiState(mealType = MealType.BREAKFAST, localResults = listOf(coffee))
+
+        val dinner = breakfast.copy(mealType = MealType.DINNER)
+
+        assertEquals(listOf(coffee), dinner.visibleResults)
+    }
+
     @Test
     fun `first online page interleaves local and internet matches`() {
         val local = listOf(food("local-1", "Yerel 1"), food("local-2", "Yerel 2"))

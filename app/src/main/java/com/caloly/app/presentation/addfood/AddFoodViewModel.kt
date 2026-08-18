@@ -2,11 +2,15 @@ package com.caloly.app.presentation.addfood
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.caloly.app.domain.model.AiMealAnalysis
+import com.caloly.app.domain.model.DetectedFood
 import com.caloly.app.domain.model.Food
 import com.caloly.app.domain.model.FoodSource
 import com.caloly.app.domain.model.FoodUnit
 import com.caloly.app.domain.model.MealType
 import com.caloly.app.domain.usecase.AddFoodLogUseCase
+import com.caloly.app.domain.usecase.AnalyzeMealDescriptionUseCase
+import com.caloly.app.domain.usecase.AnalyzeMealPhotoUseCase
 import com.caloly.app.domain.usecase.FindFoodByBarcodeUseCase
 import com.caloly.app.domain.usecase.SearchFoodsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,6 +33,8 @@ class AddFoodViewModel @Inject constructor(
     private val searchFoods: SearchFoodsUseCase,
     private val findFoodByBarcode: FindFoodByBarcodeUseCase,
     private val addFoodLog: AddFoodLogUseCase,
+    private val analyzeMealPhoto: AnalyzeMealPhotoUseCase,
+    private val analyzeMealDescription: AnalyzeMealDescriptionUseCase,
 ) : ViewModel() {
     private var localSearchJob: Job? = null
     private var onlineSearchJob: Job? = null
@@ -61,6 +67,88 @@ class AddFoodViewModel @Inject constructor(
     }
 
     fun onMealSelected(meal: MealType) = _uiState.update { it.copy(mealType = meal) }
+
+    fun analyzePhoto(contentUri: String) {
+        if (_uiState.value.isAiLoading) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isAiLoading = true,
+                    aiErrorMessage = null,
+                    aiAnalysis = null,
+                    lastAiPhotoUri = contentUri,
+                )
+            }
+            analyzeMealPhoto(contentUri)
+                .onSuccess { analysis ->
+                    _uiState.update { it.copy(isAiLoading = false, aiAnalysis = analysis, aiErrorMessage = null) }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isAiLoading = false,
+                            aiErrorMessage = error.message ?: "Yemek analizi tamamlanamadı. Tekrar deneyebilirsin.",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun retryPhotoAnalysis() {
+        _uiState.value.lastAiPhotoUri?.let(::analyzePhoto)
+    }
+
+    fun dismissAiFlow() {
+        _uiState.update {
+            it.copy(
+                aiAnalysis = null,
+                aiErrorMessage = null,
+                isAiLoading = false,
+                lastAiPhotoUri = null,
+            )
+        }
+    }
+
+    fun updateDetectedFood(index: Int, food: DetectedFood) {
+        _uiState.update { state ->
+            val analysis = state.aiAnalysis ?: return@update state
+            if (index !in analysis.foods.indices) return@update state
+            state.copy(aiAnalysis = analysis.copy(foods = analysis.foods.toMutableList().apply { set(index, food) }))
+        }
+    }
+
+    fun removeDetectedFood(index: Int) {
+        _uiState.update { state ->
+            val analysis = state.aiAnalysis ?: return@update state
+            if (index !in analysis.foods.indices) return@update state
+            state.copy(aiAnalysis = analysis.copy(foods = analysis.foods.filterIndexed { itemIndex, _ -> itemIndex != index }))
+        }
+    }
+
+    fun confirmAiMeal(onSaved: () -> Unit) {
+        val foods = _uiState.value.aiAnalysis?.foods.orEmpty()
+        if (foods.isEmpty() || _uiState.value.isAiSaving) return
+        saveAiFoods(foods, onSaved)
+    }
+
+    fun analyzeDescriptionAndSave(description: String, onSaved: () -> Unit) {
+        if (_uiState.value.isAiLoading) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isAiLoading = true, aiErrorMessage = null) }
+            analyzeMealDescription(description)
+                .onSuccess { analysis ->
+                    saveAiFoods(analysis.foods, onSaved)
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isAiLoading = false,
+                            aiErrorMessage = error.message ?: "Yazdığın öğün hesaplanamadı. Tekrar deneyebilirsin.",
+                        )
+                    }
+                }
+        }
+    }
 
     fun onFoodSelected(food: Food) {
         _uiState.update {
@@ -118,7 +206,7 @@ class AddFoodViewModel @Inject constructor(
                         isLocalLoading = false,
                         isOnlineLoading = false,
                         hasSearchedOnline = true,
-                        errorMessage = if (local.isEmpty() && uniqueRemote.isEmpty()) "Bu aramayla eşleşen bir ürün bulunamadı." else null,
+                        errorMessage = if (local.isEmpty() && uniqueRemote.isEmpty()) "Ürün bulunamadı." else null,
                     )
                 }
             }.onFailure {
@@ -160,8 +248,8 @@ class AddFoodViewModel @Inject constructor(
                     }
                     onFoodSelected(food)
                 }
-            }.onFailure { error ->
-                _uiState.update { it.copy(isOnlineLoading = false, errorMessage = error.message ?: "Barkod sorgulanamadı.") }
+            }.onFailure {
+                _uiState.update { it.copy(isOnlineLoading = false, errorMessage = "Barkod şu anda sorgulanamadı. Tekrar deneyebilirsin.") }
             }
         }
     }
@@ -204,6 +292,27 @@ class AddFoodViewModel @Inject constructor(
         }
     }
 
+    private fun saveAiFoods(foods: List<DetectedFood>, onSaved: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isAiSaving = true, isAiLoading = false, aiErrorMessage = null) }
+            runCatching {
+                val dateKey = _uiState.value.dateKey
+                val mealType = _uiState.value.mealType
+                foods.forEachIndexed { index, detected ->
+                    val food = detected.toFood("ai:${System.currentTimeMillis()}:$index")
+                    addFoodLog(dateKey, mealType, food, 1.0, FoodUnit.SERVING)
+                }
+            }.onSuccess {
+                _uiState.update { it.copy(isAiSaving = false, aiAnalysis = null, lastAiPhotoUri = null) }
+                onSaved()
+            }.onFailure {
+                _uiState.update {
+                    it.copy(isAiSaving = false, aiErrorMessage = "Öğün kaydedilemedi. Tekrar deneyebilirsin.")
+                }
+            }
+        }
+    }
+
     private fun resultKey(food: Food): String = food.barcode ?: "${food.brand.orEmpty()}|${food.name}".lowercase(Locale.ROOT)
 
     private fun defaultAmount(unit: FoodUnit) = when (unit) {
@@ -232,8 +341,13 @@ data class AddFoodUiState(
     val errorMessage: String? = null,
     val catalogSize: Int = 0,
     val favoriteIds: Set<String> = emptySet(),
+    val aiAnalysis: AiMealAnalysis? = null,
+    val isAiLoading: Boolean = false,
+    val isAiSaving: Boolean = false,
+    val aiErrorMessage: String? = null,
+    val lastAiPhotoUri: String? = null,
 ) {
-    val isLoading: Boolean get() = isOnlineLoading
+    val isLoading: Boolean get() = isOnlineLoading || isAiLoading || isAiSaving
     val visibleResults: List<Food>
         get() = mergeFoodResults(localResults, onlineResults, hasSearchedOnline, onlinePage)
     val allResultsEmpty: Boolean get() = visibleResults.isEmpty()

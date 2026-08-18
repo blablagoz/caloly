@@ -29,6 +29,7 @@ enum class FoodSource(val label: String) {
     OPEN_FOOD_FACTS("Open Food Facts"),
     OPEN_NUTRITION("Açık besin verisi (ODbL)"),
     USER("Benim ürünüm"),
+    AI_ESTIMATE("Yapay zekâ tahmini"),
 }
 
 enum class FoodUnit(val label: String) {
