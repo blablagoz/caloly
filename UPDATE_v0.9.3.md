@@ -12,7 +12,7 @@
 - Favoriler ve son kullanılan besinler hızlı ekleme alanında öne çıkar.
 - Barkod veritabanında bulunmayan ve elle oluşturulan ürünler cihazda saklanır; sonraki taramada yeniden bulunur.
 - 2024 ve sonrasında güncellenmiş açık lisanslı Türkiye ürünleri çevrimdışı kataloğa eklendi.
-- 2026 ODbL açık veri sürümünden 8.963 Türkçe genel besin adı ve makrosu çevrimdışı aramaya eklendi.
+- 2026 ODbL açık veri sürümünden kalite filtresini geçen 8.923 Türkçe genel besin adı ve makrosu çevrimdışı aramaya eklendi.
 - Aktif kalori, toplam enerji ve bazal metabolizma ayrı gösterilir. Health Connect verisi yoksa aktif kalori `Veri yok` yazar.
 - Bazal metabolizma Health Connect'ten okunur; yoksa isteğe bağlı profil bilgilerinden Mifflin–St Jeor tahmini gösterilir. Cinsiyet belirtilmediyse tek sayı yerine aralık gösterilir.
 

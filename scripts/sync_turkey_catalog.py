@@ -77,7 +77,7 @@ def is_usable(product: dict) -> bool:
     name = product.get("product_name_tr") or product.get("product_name")
     calories = (product.get("nutriments") or {}).get("energy-kcal_100g")
     modified = int(product.get("last_modified_t") or 0)
-    return bool(product.get("code") and name and calories is not None and modified >= MIN_TIMESTAMP)
+    return bool(product.get("code") and name and calories is not None and 0 <= float(calories) <= 1_000 and modified >= MIN_TIMESTAMP)
 
 
 def compact(product: dict) -> dict:
@@ -120,7 +120,7 @@ def main() -> None:
     products: dict[str, dict] = {}
     if OUTPUT.exists():
         previous = json.loads(OUTPUT.read_text(encoding="utf-8"))
-        products.update({str(item["code"]): compact(item) for item in previous.get("products", []) if item.get("code")})
+        products.update({str(item["code"]): compact(item) for item in previous.get("products", []) if item.get("code") and is_usable(item)})
         print(f"Loaded {len(products)} existing products", flush=True)
         write_snapshot(products)
     for term in SEARCH_TERMS:

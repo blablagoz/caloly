@@ -15,7 +15,7 @@ class CatalogAssetTest {
         val foods = root.getAsJsonArray("foods")
         assertTrue("Expected at least 8,000 Turkish foods", foods.size() >= 8_000)
         assertTrue(foods.all { it.asJsonObject["name"].asString.isNotBlank() })
-        assertTrue(foods.all { it.asJsonObject["calories"].asDouble > 0.0 })
+        assertTrue(foods.all { it.asJsonObject["calories"].asDouble in 0.01..1_000.0 })
     }
 
     @Test fun `Turkey packaged products are current and carry calories`() {

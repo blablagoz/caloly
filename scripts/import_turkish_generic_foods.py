@@ -49,14 +49,19 @@ def main() -> None:
             name = (titles.get("tr") or "").strip()
             nutrition = row.get("nutrition_100g") or {}
             calories = quantity(nutrition, "calories")
-            if not name or calories <= 0:
+            protein = quantity(nutrition, "protein")
+            carbs = quantity(nutrition, "carbohydrates")
+            fat = quantity(nutrition, "total_fat")
+            if not name or calories <= 0 or calories > 1_000:
+                continue
+            if max(protein, carbs, fat) > 100 or protein + carbs + fat > 105:
                 continue
             canonical = " ".join(name.casefold().split())
             nutrient_key = (
                 round(calories, 2),
-                round(quantity(nutrition, "protein"), 2),
-                round(quantity(nutrition, "carbohydrates"), 2),
-                round(quantity(nutrition, "total_fat"), 2),
+                round(protein, 2),
+                round(carbs, 2),
+                round(fat, 2),
             )
             dedupe_key = f"{canonical}:{nutrient_key}"
             if dedupe_key in seen:
