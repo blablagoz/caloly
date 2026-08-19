@@ -7,8 +7,8 @@ const JSON_HEADERS = {
 };
 
 const MODELS = Array.from(new Set([
-  Deno.env.get("GEMINI_MODEL") || "gemini-3.6-flash",
-  "gemini-3-flash-preview",
+  Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite",
+  "gemini-2.5-flash-lite",
   "gemini-2.5-flash",
 ]));
 
