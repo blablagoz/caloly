@@ -1,43 +1,44 @@
-# Caloly — Supabase Setup
+# Caloly — Supabase kurulumu
 
-1. Create a Supabase project.
-2. Run `supabase/001_auth_profiles.sql` in SQL Editor.
-3. Authentication > URL Configuration: add `caloly://auth` as an allowed redirect URL.
-4. Authentication > Email Templates:
-   - For code based sign-in/confirmation, put `{{ .Token }}` in the e-mail body.
-   - Keep password recovery configured; Caloly redirects recovery links to `caloly://auth`.
-5. Authentication > Providers > Google:
-   - enable Google
-   - enter Google OAuth client ID/secret requested by Supabase.
-6. Add project config to local `gradle.properties`:
+## Temel kurulum
 
-```
+1. Bir Supabase projesi oluşturun.
+2. SQL Editor içinde migration dosyalarını sırayla çalıştırın:
+   - `supabase/001_auth_profiles.sql`
+   - `supabase/002_social.sql`
+   - `supabase/003_social_dashboard.sql`
+   - `supabase/004_profile_onboarding.sql`
+   - `supabase/005_v092_nutrition_templates.sql`
+3. Authentication > URL Configuration bölümünde `caloly://auth` adresini izin verilen yönlendirmelere ekleyin.
+4. Kodla e-posta doğrulaması için Authentication > Email Templates içindeki şablona `{{ .Token }}` ekleyin.
+5. Yerel `gradle.properties` dosyasına istemci için güvenli proje bilgilerini ekleyin:
+
+```properties
 SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-Do not ship service-role/secret keys in an Android APK. Caloly is designed to use the client-safe publishable key and RLS.
+Service-role veya secret anahtarını Android APK içine eklemeyin. Mobil uygulama yalnızca publishable key ve RLS/RPC izinlerini kullanır.
 
-## v0.6.0 Social migration
-Auth/profile migration tamamlandıktan sonra SQL Editor içinde:
+## Sosyal özellikler
 
-1. `supabase/002_social.sql` çalıştırın.
-2. Data API ayarlarında `public` şemasının erişilebilir olduğundan emin olun.
-3. Mobil uygulama yalnız publishable key kullanır. Service-role/secret key eklemeyin.
-4. `daily_summaries` tablosu kullanıcıya kendi satırlarında RLS ile erişim verir. Başka kullanıcıların özetleri yalnız `get_caloly_shared_daily_summary` RPC'sinden, ilişki ve paylaşım izinleri kontrol edilerek döner.
+- `002_social.sql` arkadaş arama, istekler, bağlantılar ve kişi bazlı paylaşım izinlerini kurar.
+- `003_social_dashboard.sql` birlikte takip hedeflerini ve avatar Storage alanını kurar.
+- `005_v092_nutrition_templates.sql` arkadaşlarla paylaşılabilen örnek öğün/gün kayıtlarını kurar.
+- Bir arkadaşın örnek öğünleri yalnızca o kişi “Beslenme detayları” paylaşım iznini açtıysa görünür.
 
-## v0.7.0 ek kurulumu
+Ekranda `PGRST202` veya “schema cache” hatası oluşması, ilgili migration dosyasının Supabase projesinde henüz çalıştırılmadığını gösterir. v0.9.2 bu teknik metni kullanıcıya göstermez; yine de özelliğin çalışması için migration kurulmalıdır.
 
-`001_auth_profiles.sql` ve `002_social.sql` sonrasında SQL Editor'da:
+## Kullanıcı adıyla giriş
 
-```sql
--- supabase/003_social_dashboard.sql içeriğini çalıştırın
-```
+1. Supabase CLI ile `supabase functions deploy login-identifier` çalıştırın.
+2. Edge Function ortamında `SUPABASE_URL`, `SUPABASE_ANON_KEY` ve `SUPABASE_SERVICE_ROLE_KEY` secret değerlerini tanımlayın.
+3. Service-role anahtarı yalnızca Edge Function ortamında kalmalı, APK içine eklenmemelidir.
 
-Bu migration:
-- `relationship_goals` tablosunu,
-- ortak hedef RPC'lerini,
-- public `avatars` Storage bucket'ını,
-- yalnızca kullanıcının kendi avatar klasörüne yazmasına izin veren Storage politikalarını oluşturur.
+## Google ile giriş
 
-Ortak hedef RPC'si partnerin adım/kalori paylaşım izinlerini kontrol eder; kapalı bir metrik hedef kartı üzerinden açığa çıkarılmaz.
+1. Google Cloud Console içinde OAuth istemcilerini oluşturun.
+2. Supabase Authentication > Providers > Google bölümünü etkinleştirin ve Web client ID/secret değerlerini girin.
+3. Authentication > URL Configuration içinde `caloly://auth` yönlendirmesini doğrulayın.
+
+Uygulama, Google sağlayıcısı kapalıysa tarayıcıda ham JSON hata ekranı açmak yerine anlaşılır bir uyarı gösterir. Sağlayıcıyı etkinleştirmek yine de Supabase/Google yönetim panellerinde yapılması gereken harici bir kurulumdur.

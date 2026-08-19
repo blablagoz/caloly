@@ -1,0 +1,8 @@
+.gradle/
+.gradle-runtime/
+**/build/
+github-artifact/
+local.properties
+*.jks
+*.keystore
+hs_err_pid*.log

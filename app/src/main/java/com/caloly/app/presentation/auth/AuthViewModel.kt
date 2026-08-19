@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.caloly.app.domain.auth.AuthRepository
 import com.caloly.app.domain.auth.AuthState
+import com.caloly.app.domain.auth.isValidUsername
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,7 +34,7 @@ class AuthViewModel @Inject constructor(
 
     fun clearFeedback() { _action.value = _action.value.copy(message = null, error = null) }
 
-    fun sendOtp(email: String, createUser: Boolean = true) = runAction {
+    fun sendOtp(email: String, createUser: Boolean = false) = runAction {
         require(email.contains('@')) { "Geçerli bir e-posta adresi girin." }
         repository.sendEmailOtp(email, createUser)
         _action.value = AuthActionState(
@@ -53,7 +54,7 @@ class AuthViewModel @Inject constructor(
         require(email.contains('@')) { "Geçerli bir e-posta adresi girin." }
         validatePassword(password)
         require(displayName.isNotBlank()) { "Adınızı girin." }
-        require(username.matches(Regex("[a-zA-Z0-9._]{3,24}"))) { "Kullanıcı adı 3-24 karakter; harf, sayı, nokta ve alt çizgi içerebilir." }
+        require(isValidUsername(username)) { "Kullanıcı adı 3-24 karakter; Türkçe harf, sayı, nokta ve alt çizgi içerebilir." }
         repository.signUp(email, password, displayName, username)
         _action.value = AuthActionState(
             message = "Hesap oluşturuldu. E-postadaki doğrulama bağlantısına dokunun.",
@@ -62,8 +63,11 @@ class AuthViewModel @Inject constructor(
         onSubmitted()
     }
 
-    fun signIn(email: String, password: String) = runAction {
-        repository.signIn(email, password)
+    fun signIn(identifier: String, password: String) = runAction {
+        require(identifier.isNotBlank()) { "E-posta veya kullanıcı adını girin." }
+        require(password.isNotBlank()) { "Şifrenizi girin." }
+        repository.signIn(identifier, password)
+        _action.value = AuthActionState(message = "Giriş başarılı.")
     }
 
     fun googleSignIn() = runAction { repository.signInWithGoogle() }
@@ -83,9 +87,29 @@ class AuthViewModel @Inject constructor(
 
     fun updateProfile(displayName: String, username: String, onDone: () -> Unit) = runAction {
         require(displayName.isNotBlank()) { "Ad alanı boş bırakılamaz." }
-        require(username.matches(Regex("[a-zA-Z0-9._]{3,24}"))) { "Geçerli bir kullanıcı adı girin." }
+        require(isValidUsername(username)) { "Kullanıcı adı 3-24 karakter; Türkçe harf, sayı, nokta ve alt çizgi içerebilir." }
         repository.updateProfile(displayName, username)
         _action.value = AuthActionState(message = "Profil güncellendi.")
+        onDone()
+    }
+
+    fun updateHealthProfile(
+        birthDate: String,
+        heightCm: Int,
+        weightKg: Double,
+        gender: String,
+        onDone: () -> Unit,
+    ) = runAction {
+        require(runCatching { java.time.LocalDate.parse(birthDate) }.isSuccess) { "Geçerli bir doğum tarihi girin." }
+        require(heightCm in 100..250) { "Boy 100-250 cm arasında olmalı." }
+        require(weightKg in 30.0..350.0) { "Kilo 30-350 kg arasında olmalı." }
+        repository.updateHealthProfile(birthDate, heightCm, weightKg, gender)
+        _action.value = AuthActionState(message = "Vücut bilgilerin güncellendi.")
+        onDone()
+    }
+
+    fun skipHealthProfile(onDone: () -> Unit) = runAction {
+        repository.skipHealthProfile()
         onDone()
     }
 
@@ -110,5 +134,13 @@ class AuthViewModel @Inject constructor(
         require(password.any(Char::isLetter) && password.any(Char::isDigit)) { "Şifre en az bir harf ve bir rakam içermeli." }
     }
 
-    private fun humanize(t: Throwable): String = t.message?.takeIf { it.isNotBlank() } ?: "İşlem sırasında bir hata oluştu."
+    private fun humanize(t: Throwable): String {
+        val message = t.message.orEmpty()
+        return when {
+            message.contains("Google ile giriş", ignoreCase = true) -> "Google ile giriş şu anda kullanılamıyor."
+            message.contains("PGRST", ignoreCase = true) || message.contains("schema cache", ignoreCase = true) -> "Bu özellik şu anda hazırlanıyor."
+            message.isNotBlank() && message.length <= 180 -> message
+            else -> "İşlem sırasında bir hata oluştu."
+        }
+    }
 }

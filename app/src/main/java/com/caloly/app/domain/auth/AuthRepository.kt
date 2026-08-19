@@ -8,6 +8,14 @@ data class CalolyUser(
     val displayName: String?,
     val username: String?,
     val avatarUrl: String? = null,
+    val birthDate: String? = null,
+    val heightCm: Int? = null,
+    val weightKg: Double? = null,
+    val targetWeightKg: Double? = null,
+    val gender: String? = null,
+    val activityLevel: String? = null,
+    val nutritionGoal: String? = null,
+    val onboardingCompleted: Boolean = false,
 )
 
 sealed interface AuthState {
@@ -18,7 +26,7 @@ sealed interface AuthState {
 
 interface AuthRepository {
     val authState: Flow<AuthState>
-    suspend fun sendEmailOtp(email: String, createUser: Boolean = true)
+    suspend fun sendEmailOtp(email: String, createUser: Boolean = false)
     suspend fun verifyEmailOtp(email: String, token: String, isSignup: Boolean = false)
     suspend fun signUp(email: String, password: String, displayName: String, username: String)
     suspend fun signIn(email: String, password: String)
@@ -26,6 +34,13 @@ interface AuthRepository {
     suspend fun sendPasswordReset(email: String)
     suspend fun changePassword(newPassword: String)
     suspend fun updateProfile(displayName: String, username: String)
+    suspend fun updateHealthProfile(
+        birthDate: String,
+        heightCm: Int,
+        weightKg: Double,
+        gender: String,
+    )
+    suspend fun skipHealthProfile()
     suspend fun uploadAvatar(bytes: ByteArray, contentType: String = "image/jpeg")
     suspend fun signOut()
 }

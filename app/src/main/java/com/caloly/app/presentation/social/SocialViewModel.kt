@@ -2,6 +2,9 @@ package com.caloly.app.presentation.social
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
+import com.caloly.app.domain.model.NutritionTemplate
+import com.caloly.app.domain.repository.NutritionRepository
 import com.caloly.app.domain.social.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -22,6 +25,7 @@ data class SocialUiState(
     val selected: SocialConnection? = null,
     val selectedSummary: SharedDailySummary? = null,
     val selectedGoals: List<RelationshipGoal> = emptyList(),
+    val sharedTemplates: List<NutritionTemplate> = emptyList(),
     val loading: Boolean = false,
     val message: String? = null,
 )
@@ -29,6 +33,7 @@ data class SocialUiState(
 @HiltViewModel
 class SocialViewModel @Inject constructor(
     private val repository: SocialRepository,
+    private val nutritionRepository: NutritionRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SocialUiState())
     val state: StateFlow<SocialUiState> = _state
@@ -51,12 +56,13 @@ class SocialViewModel @Inject constructor(
                 async { connection.relationshipId to repository.sharedToday(connection.profile.id, date) }
             }.awaitAll().toMap()
         }
-        _state.value = _state.value.copy(requests = requests, connections = connections, summaries = summaries)
+        val templates = repository.sharedTemplates()
+        _state.value = _state.value.copy(requests = requests, connections = connections, summaries = summaries, sharedTemplates = templates)
     }
 
     fun sendRequest(profile: SocialProfile, relationshipType: String = "FRIEND") = runAction {
         repository.sendFollowRequest(profile.id, relationshipType)
-        _state.value = _state.value.copy(message = if (relationshipType == "PARTNER") "Partner isteği gönderildi" else "Takip isteği gönderildi")
+        _state.value = _state.value.copy(message = if (relationshipType == "PARTNER") "Hedef arkadaşı isteği gönderildi" else "Arkadaşlık isteği gönderildi")
         val q = _state.value.query.trim()
         if (q.length >= 2) _state.value = _state.value.copy(searchResults = repository.searchUsers(q))
     }
@@ -90,8 +96,6 @@ class SocialViewModel @Inject constructor(
     }
 
     fun createStepGoal(target: Int) = createGoal(GoalMetric.STEPS_DAILY, target)
-    fun createCalorieGoal() = createGoal(GoalMetric.CALORIE_TARGET, 1)
-
     private fun createGoal(metric: GoalMetric, target: Int) = runAction {
         val connection = _state.value.selected ?: return@runAction
         repository.createGoal(connection.relationshipId, metric, target)
@@ -101,6 +105,11 @@ class SocialViewModel @Inject constructor(
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
 
+    fun saveSharedTemplate(template: NutritionTemplate) = runAction {
+        nutritionRepository.saveImportedTemplate(template)
+        _state.value = _state.value.copy(message = "Örnek beslenme kaydı şablonlarına eklendi")
+    }
+
     private suspend fun reloadSocial() {
         val requests = repository.incomingRequests()
         val connections = repository.connections()
@@ -109,14 +118,18 @@ class SocialViewModel @Inject constructor(
             connections.map { connection -> async { connection.relationshipId to repository.sharedToday(connection.profile.id, date) } }
                 .awaitAll().toMap()
         }
-        _state.value = _state.value.copy(requests = requests, connections = connections, summaries = summaries)
+        val templates = repository.sharedTemplates()
+        _state.value = _state.value.copy(requests = requests, connections = connections, summaries = summaries, sharedTemplates = templates)
     }
 
     private fun runAction(block: suspend () -> Unit) {
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, message = null)
             runCatching { block() }
-                .onFailure { _state.value = _state.value.copy(message = it.message ?: "İşlem tamamlanamadı") }
+                .onFailure {
+                    Log.e("CalolySocial", "Social operation failed", it)
+                    _state.value = _state.value.copy(message = it.toSocialUserMessage())
+                }
             _state.value = _state.value.copy(loading = false)
         }
     }

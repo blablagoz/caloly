@@ -1,6 +1,11 @@
 package com.caloly.app.data.social
 
 import com.caloly.app.domain.model.DailySummary
+import com.caloly.app.domain.model.FoodUnit
+import com.caloly.app.domain.model.MealType
+import com.caloly.app.domain.model.NutritionTemplate
+import com.caloly.app.domain.model.NutritionTemplateItem
+import com.caloly.app.domain.model.TemplateKind
 import com.caloly.app.domain.social.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
@@ -11,6 +16,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.time.Instant
 
 @Serializable private data class SearchParams(val search_text: String)
 @Serializable private data class SendRequestParams(val target_user_id: String, val relation_type: String)
@@ -25,6 +31,34 @@ import javax.inject.Singleton
     val share_weight: Boolean,
     val share_food_details: Boolean,
     val share_history: Boolean,
+)
+
+@Serializable private data class TemplateItemDto(
+    @SerialName("meal_type") val mealType: String,
+    @SerialName("food_name") val foodName: String,
+    val brand: String? = null,
+    val amount: Double,
+    val unit: String,
+    val grams: Double,
+    val calories: Int,
+    @SerialName("protein_grams") val proteinGrams: Double,
+    @SerialName("carbs_grams") val carbsGrams: Double,
+    @SerialName("fat_grams") val fatGrams: Double,
+)
+
+@Serializable private data class PublishTemplateParams(
+    @SerialName("p_title") val title: String,
+    @SerialName("p_kind") val kind: String,
+    @SerialName("p_items") val items: List<TemplateItemDto>,
+)
+
+@Serializable private data class SharedTemplateDto(
+    @SerialName("template_id") val templateId: String,
+    @SerialName("owner_name") val ownerName: String? = null,
+    val title: String,
+    val kind: String,
+    val items: List<TemplateItemDto> = emptyList(),
+    @SerialName("created_at") val createdAt: String,
 )
 
 @Serializable private data class ProfileDto(
@@ -188,4 +222,47 @@ class SupabaseSocialRepository @Inject constructor(
             onConflict = "user_id,date"
         }
     }
+
+    override suspend fun publishTemplate(template: NutritionTemplate) {
+        supabase.postgrest.rpc(
+            "publish_caloly_nutrition_template",
+            PublishTemplateParams(
+                title = template.name,
+                kind = template.kind.name,
+                items = template.items.map { it.toDto() },
+            ),
+        )
+    }
+
+    override suspend fun sharedTemplates(): List<NutritionTemplate> =
+        supabase.postgrest.rpc("get_caloly_shared_nutrition_templates")
+            .decodeList<SharedTemplateDto>()
+            .map { dto ->
+                NutritionTemplate(
+                    id = "shared:${dto.templateId}",
+                    name = dto.title,
+                    kind = TemplateKind.valueOf(dto.kind),
+                    items = dto.items.map { it.toDomain() },
+                    sourceOwnerName = dto.ownerName,
+                    createdAt = runCatching { Instant.parse(dto.createdAt).toEpochMilli() }.getOrDefault(0L),
+                )
+            }
 }
+
+private fun NutritionTemplateItem.toDto() = TemplateItemDto(
+    mealType.name, foodName, brand, amount, unit.name, grams, calories,
+    proteinGrams, carbsGrams, fatGrams,
+)
+
+private fun TemplateItemDto.toDomain() = NutritionTemplateItem(
+    mealType = MealType.valueOf(mealType),
+    foodName = foodName,
+    brand = brand,
+    amount = amount,
+    unit = FoodUnit.valueOf(unit),
+    grams = grams,
+    calories = calories,
+    proteinGrams = proteinGrams,
+    carbsGrams = carbsGrams,
+    fatGrams = fatGrams,
+)

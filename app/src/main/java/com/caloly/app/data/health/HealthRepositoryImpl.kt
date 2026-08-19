@@ -5,6 +5,7 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.time.TimeRangeFilter
@@ -26,6 +27,7 @@ class HealthRepositoryImpl @Inject constructor(
     override val requiredPermissions: Set<String> = setOf(
         HealthPermission.getReadPermission(StepsRecord::class),
         HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(BasalMetabolicRateRecord::class),
         HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
     )
 
@@ -57,16 +59,23 @@ class HealthRepositoryImpl @Inject constructor(
                 metrics = setOf(
                     StepsRecord.COUNT_TOTAL,
                     ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
+                    BasalMetabolicRateRecord.BASAL_CALORIES_TOTAL,
                     TotalCaloriesBurnedRecord.ENERGY_TOTAL,
                 ),
                 timeRangeFilter = TimeRangeFilter.between(start, end),
             )
         )
 
+        val activeEnergy = result[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]
+        val totalEnergy = result[TotalCaloriesBurnedRecord.ENERGY_TOTAL]
+        val basalEnergy = result[BasalMetabolicRateRecord.BASAL_CALORIES_TOTAL]
         return HealthSummary(
             steps = result[StepsRecord.COUNT_TOTAL] ?: 0L,
-            activeCalories = (result[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories ?: 0.0).roundToInt(),
-            totalCaloriesBurned = (result[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories ?: 0.0).roundToInt(),
+            activeCalories = (activeEnergy?.inKilocalories ?: 0.0).roundToInt(),
+            totalCaloriesBurned = (totalEnergy?.inKilocalories ?: 0.0).roundToInt(),
+            basalCalories = basalEnergy?.inKilocalories?.roundToInt(),
+            hasActiveCaloriesData = activeEnergy != null,
+            hasTotalCaloriesData = totalEnergy != null,
         )
     }
 }

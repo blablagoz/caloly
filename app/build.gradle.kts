@@ -20,8 +20,8 @@ android {
         applicationId = "com.caloly.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.8.0"
+        versionCode = 25
+        versionName = "0.10.1"
 
         val supabaseUrl = providers.gradleProperty("SUPABASE_URL").orElse("").get()
         val supabaseKey = providers.gradleProperty("SUPABASE_PUBLISHABLE_KEY").orElse("").get()
@@ -45,6 +45,7 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+
 }
 
 kotlin {
@@ -81,11 +82,17 @@ dependencies {
     ksp("androidx.room:room-compiler:2.7.2")
 
     implementation("androidx.datastore:datastore-preferences:1.1.7")
+    implementation("androidx.work:work-runtime-ktx:2.10.3")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
 
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+
+    val cameraXVersion = "1.6.1"
+    implementation("androidx.camera:camera-camera2:$cameraXVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
+    implementation("androidx.camera:camera-view:$cameraXVersion")
 
     implementation("androidx.health.connect:connect-client:1.1.0")
 
